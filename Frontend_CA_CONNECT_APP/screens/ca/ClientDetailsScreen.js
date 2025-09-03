@@ -1,210 +1,43 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator, ScrollView,
-  TouchableOpacity, Linking, Alert, Modal, TextInput, Platform, FlatList
+  TouchableOpacity, Linking, Alert, Modal, TextInput, Platform, FlatList, Dimensions
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
-import { mime } from 'react-native-mime-types';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import paymentService from '../../services/paymentService';
 import filingService from '../../services/filingService';
+import AddAmountModal from '../../components/modals/AddAmountModal';
+import ManualPaymentModal from '../../components/modals/ManualPaymentModal';
+import FileUploadModal from '../../components/modals/FileUploadModal';
 
-// Filing types with their display names and default fees
-const FILING_TYPES = [
-  { 
-    id: 'GST', 
-    name: 'GST', 
-    defaultFee: 1000, 
-    category: 'GST',
-    description: 'Goods and Services Tax Return',
-    frequency: 'Monthly/Quarterly',
-    dueDate: '20th of next month'
-  },
-  { 
-    id: 'ITR', 
-    name: 'Income Tax', 
-    defaultFee: 2000,
-    category: 'Income Tax',
-    description: 'Income Tax Return',
-    frequency: 'Annual',
-    dueDate: 'July 31st (Individual)'
-  },
-  { 
-    id: 'TDS-24Q', 
-    name: 'TDS 24Q', 
-    defaultFee: 500,
-    category: 'TDS',
-    description: 'Salary TDS Return',
-    frequency: 'Quarterly',
-    dueDate: 'Last day of next month'
-  },
-  { 
-    id: 'TDS-26Q', 
-    name: 'TDS 26Q', 
-    defaultFee: 500,
-    category: 'TDS',
-    description: 'Non-Salary TDS Return',
-    frequency: 'Quarterly',
-    dueDate: 'Last day of next month'
-  },
-  { 
-    id: 'GSTR-1', 
-    name: 'GSTR-1', 
-    defaultFee: 800,
-    category: 'GST',
-    description: 'Outward Supplies Return',
-    frequency: 'Monthly/Quarterly',
-    dueDate: '11th of next month'
-  },
-  { 
-    id: 'GSTR-3B', 
-    name: 'GSTR-3B', 
-    defaultFee: 1000,
-    category: 'GST',
-    description: 'Monthly Summary Return',
-    frequency: 'Monthly',
-    dueDate: '20th of next month'
-  },
-  { 
-    id: 'GSTR-9', 
-    name: 'GSTR-9', 
-    defaultFee: 1500,
-    category: 'GST',
-    description: 'Annual Return',
-    frequency: 'Annual',
-    dueDate: 'December 31st'
-  },
-  { 
-    id: 'TDS-27Q', 
-    name: 'TDS 27Q', 
-    defaultFee: 600,
-    category: 'TDS',
-    description: 'TDS for Non-Residents',
-    frequency: 'Quarterly',
-    dueDate: 'Last day of next month'
-  },
-  { 
-    id: 'TDS-26QB', 
-    name: 'TDS 26QB', 
-    defaultFee: 700,
-    category: 'TDS',
-    description: 'TDS on Property Purchase',
-    frequency: 'On Transaction',
-    dueDate: '30 days from end of month'
-  }
-];
+const { width } = Dimensions.get('window');
 
 const ClientDetailsScreen = () => {
-  const [showFileUploadModal, setShowFileUploadModal] = useState(false);
-  const [selectedFileType, setSelectedFileType] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear().toString());
-  const [currentMonth, setCurrentMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
-  
-  // Get default fee based on selected file type
-  const getDefaultFee = (fileType) => {
-    const selectedType = FILING_TYPES.find(type => type.id === fileType);
-    return selectedType ? selectedType.defaultFee : '';
-  };
-  
-  // Update fee when file type changes
-  useEffect(() => {
-    if (selectedFileType) {
-      setNewFiling(prev => ({
-        ...prev,
-        fee: getDefaultFee(selectedFileType)
-      }));
-    }
-  }, [selectedFileType]);
-
-  const handleFileUpload = async () => {
-    if (!selectedFileType || !newFiling.fee) return;
-    
-    setIsUploading(true);
-    
-    try {
-      const financialYear = `${currentYear}-${currentMonth}`;
-      const formData = new FormData();
-      formData.append('clientId', clientId);
-      formData.append('fileType', selectedFileType);
-      formData.append('financialYear', financialYear);
-      formData.append('month', currentMonth);
-      formData.append('fee', newFiling.fee);
-
-      const response = await fetch('http://192.168.29.44:5000/api/filings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await AsyncStorage.getItem('userToken')}`
-        },
-        body: JSON.stringify({
-          clientId,
-          type: selectedFileType,
-          month: financialYear,
-          fee: newFiling.fee,
-          status: 'pending'
-        })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        Alert.alert('Success', 'Filing record created successfully!');
-        setShowFileUploadModal(false);
-        setSelectedFileType('');
-        setCurrentYear(new Date().getFullYear().toString());
-        setCurrentMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
-        setNewFiling({
-          ...newFiling,
-          fee: ''
-        });
-        // Refresh filings list
-        fetchClientFilings();
-      } else {
-        throw new Error(data.message || 'Failed to create filing record');
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      Alert.alert('Error', error.message || 'Failed to create filing record. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-  const [showOutstandingModal, setShowOutstandingModal] = useState(false);
-  const [outstandingAmount, setOutstandingAmount] = useState('');
-  const [outstandingDescription, setOutstandingDescription] = useState('');
   const route = useRoute();
   const navigation = useNavigation();
   const { clientId } = route.params || {};
+  
+  // State declarations
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [authStep, setAuthStep] = useState(false);
+  const [recentPayments, setRecentPayments] = useState([]);
+  const [showAddAmountModal, setShowAddAmountModal] = useState(false);
+  const [showManualPaymentModal, setShowManualPaymentModal] = useState(false);
+  const [showFileUploadModal, setShowFileUploadModal] = useState(false);
+  const [outstandingAmount, setOutstandingAmount] = useState('');
+  const [outstandingDescription, setOutstandingDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
-  const [manualDate, setManualDate] = useState('');
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
   const [manualNote, setManualNote] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [recentPayments, setRecentPayments] = useState([]);
-  const [paymentHistory, setPaymentHistory] = useState([]);
-  
-  // Filing states
-  const [filings, setFilings] = useState([]);
-  const [showAddFiling, setShowAddFiling] = useState(false);
-  const [newFiling, setNewFiling] = useState({
-    type: '',
-    month: '',
-    fee: '',
-    notes: ''
-  });
-  const [loadingFilings, setLoadingFilings] = useState(false);
   const [token, setToken] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   // Fetch token from AsyncStorage
   const getToken = useCallback(async () => {
@@ -217,20 +50,6 @@ const ClientDetailsScreen = () => {
       console.error('Error fetching token:', error);
     }
   }, []);
-
-  // Fetch client filings
-  const fetchClientFilings = useCallback(async () => {
-    if (!clientId || !token) return;
-    setLoadingFilings(true);
-    try {
-      const filingsData = await filingService.getClientFilings(clientId, token);
-      setFilings(filingsData);
-    } catch (error) {
-      console.error('Error fetching filings:', error);
-      Alert.alert('Error', 'Failed to fetch filing details.');
-    }
-    setLoadingFilings(false);
-  }, [clientId, token]);
 
   // ✅ fetch client details
   const fetchClientDetails = async () => {
@@ -245,11 +64,6 @@ const ClientDetailsScreen = () => {
       const clientData = await clientRes.json();
       setClient(clientData);
       setRecentPayments(paymentData.payments);
-      
-      // Fetch filings if token is available
-      if (token) {
-        await fetchClientFilings();
-      }
     } catch (error) {
       console.error('Error in fetchClientDetails:', error);
       Alert.alert("Error", "Failed to fetch client details.");
@@ -270,108 +84,119 @@ const ClientDetailsScreen = () => {
     }
   }, [clientId, token]);
 
-  // Handle filing type change
-  const handleFilingTypeChange = (type) => {
-    const selectedType = FILING_TYPES.find(t => t.id === type);
-    setNewFiling(prev => ({
-      ...prev,
-      type,
-      fee: selectedType ? selectedType.defaultFee.toString() : ''
-    }));
-  };
-
-  // Handle month change
-  const handleMonthChange = (month) => {
-    setNewFiling(prev => ({
-      ...prev,
-      month: month
-    }));
-  };
-
-  // Save new filing
-  const handleSaveFiling = async () => {
-    if (!newFiling.type || !newFiling.month) {
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
-    }
-
-    try {
-      await filingService.saveFiling(
-        {
-          clientId,
-          type: newFiling.type,
-          month: newFiling.month,
-          fee: parseFloat(newFiling.fee) || 0,
-          notes: newFiling.notes,
-          status: 'pending'
-        },
-        token
-      );
-      
-      setShowAddFiling(false);
-      setNewFiling({
-        type: 'GST',
-        month: new Date().toISOString().slice(0, 7),
-        fee: '',
-        notes: ''
-      });
-      
-      await fetchClientFilings();
-      Alert.alert('Success', 'Filing added successfully');
-    } catch (error) {
-      console.error('Error saving filing:', error);
-      Alert.alert('Error', error.message || 'Failed to save filing');
-    }
-  };
-
-  // Mark filing as filed
-  const handleMarkAsFiled = async (filingId) => {
-    try {
-      await filingService.markFilingAsFiled(filingId, '', token);
-      await fetchClientFilings();
-      Alert.alert('Success', 'Filing marked as filed');
-    } catch (error) {
-      console.error('Error marking as filed:', error);
-      Alert.alert('Error', error.message || 'Failed to update filing status');
-    }
-  };
-
-  // Delete filing
-  const handleDeleteFiling = async (filingId) => {
-    try {
-      await filingService.deleteFiling(filingId, token);
-      await fetchClientFilings();
-      Alert.alert('Success', 'Filing deleted successfully');
-    } catch (error) {
-      console.error('Error deleting filing:', error);
-      Alert.alert('Error', error.message || 'Failed to delete filing');
-    }
-  };
-
-  // Add Outstanding
+  // Handle adding outstanding amount
   const handleCreateOutstanding = async () => {
     if (!outstandingAmount || !outstandingDescription) {
-      Alert.alert("Error", "Please enter both amount and description.");
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     try {
+      setLoading(true);
       await paymentService.createOutstandingPayment(
         clientId,
         parseFloat(outstandingAmount),
         outstandingDescription
       );
-
-      Alert.alert("Success", "Outstanding payment request added successfully ✅");
-      setShowOutstandingModal(false);
-      setOutstandingAmount("");
-      setOutstandingDescription("");
-      fetchClientDetails();
+      await fetchClientDetails();
+      setShowAddAmountModal(false);
+      setOutstandingAmount('');
+      setOutstandingDescription('');
+      Alert.alert('Success', 'Outstanding amount added successfully');
     } catch (error) {
-      Alert.alert("Error", error.message);
+      console.error('Error creating outstanding amount:', error);
+      Alert.alert('Error', 'Failed to add outstanding amount');
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Handle manual payment submission
+  const handleManualSubmit = async () => {
+    if (!manualAmount) {
+      Alert.alert('Error', 'Please enter an amount');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // First verify biometrics
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Verify your identity to record payment',
+        fallbackLabel: 'Enter Passcode',
+      });
+
+      if (result.success) {
+        // Process the payment
+        await paymentService.recordManualPayment({
+          clientId,
+          amount: parseFloat(manualAmount),
+          paymentMethod,
+          paidAt: manualDate || new Date().toISOString().split('T')[0],
+          notes: manualNote,
+        });
+
+        // Refresh client data
+        await fetchClientDetails();
+        
+        // Reset form
+        setManualAmount('');
+        setManualNote('');
+        setShowManualPaymentModal(false);
+        
+        Alert.alert('Success', 'Payment recorded successfully');
+      } else {
+        Alert.alert('Authentication Failed', 'You must authenticate to record a payment');
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      Alert.alert('Error', 'Failed to record payment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle file upload and fee payment
+  const handleFileUpload = async (filingData) => {
+    try {
+      setUploading(true);
+      
+      // 1. Save the filing record
+      // await filingService.saveFiling({
+      //   clientId,
+      //   ...filingData,
+      //   status: filingData.status || 'pending'
+      // });
+
+      // 2. If there's a fee, create a payment record
+      if (filingData.fee && filingData.fee > 0) {
+        await paymentService.createOutstandingPayment(
+          clientId,
+          filingData.fee,
+          `Filing fee for ${filingData.gstType} (${filingData.month}/${filingData.year})`,
+          'filing_fee'  // Add a type to identify this as a filing fee
+        );
+      }
+
+      // 3. Refresh client data to update the UI
+      await fetchClientDetails();
+      
+      // 4. Show success message and close modal
+      Alert.alert(
+        'Success', 
+        `Filing ${filingData.gstType} for ${filingData.month}/${filingData.year} has been saved${filingData.fee > 0 ? ' and fee has been added to outstanding balance' : ''}`
+      );
+      
+      setShowFileUploadModal(false);
+    } catch (error) {
+      console.error('Error saving filing:', error);
+      Alert.alert('Error', 'Failed to save filing: ' + (error.message || 'Unknown error'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle call
   const handleCall = () => {
     if (client?.phone) {
       Linking.openURL(`tel:${client.phone}`).catch(() => {
@@ -380,6 +205,7 @@ const ClientDetailsScreen = () => {
     }
   };
 
+  // Handle mark as paid
   const handleMarkAsPaid = async () => {
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
@@ -392,8 +218,7 @@ const ClientDetailsScreen = () => {
       fallbackLabel: 'Enter device PIN',
     });
     if (result.success) {
-      setAuthStep(true);
-      setModalVisible(true);
+      setShowManualPaymentModal(true);
       setManualAmount('');
       setManualDate('');
       setManualNote('');
@@ -402,59 +227,14 @@ const ClientDetailsScreen = () => {
     }
   };
 
-  const handleManualSubmit = async () => {
-    if (!manualAmount || !manualDate) {
-      Alert.alert('Missing Information', 'Please enter amount and select date');
-      return;
-    }
-
-    const paymentAmount = parseFloat(manualAmount);
-    const currentBalance = client.totalOutstanding || 0;
-
-    if (paymentAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0');
-      return;
-    }
-
-    if (paymentAmount > currentBalance) {
-      Alert.alert(
-        'Amount Too High', 
-        `Maximum amount you can record is ₹${currentBalance.toLocaleString()}`,
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    try {
-      const paymentData = {
-        clientId,
-        amount: paymentAmount,
-        paymentMethod,
-        description: manualNote || 'Payment made',
-        paidAt: new Date(manualDate).toISOString()
-      };
-
-      await paymentService.recordManualPayment(paymentData);
-
-      Alert.alert('Payment Recorded', `₹${paymentAmount.toLocaleString()} payment recorded successfully`);
-      setModalVisible(false);
-      setManualAmount('');
-      setManualNote('');
-      setManualDate('');
-      fetchClientDetails();
-    } catch (error) {
-      console.error('Payment recording failed:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Something went wrong';
-      Alert.alert('Recording Failed', errorMessage);
-    }
-  };
-
+  // Format date
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const options = { year: 'numeric', month: 'short', day: 'numeric' };
     return new Date(dateString).toLocaleDateString('en-GB', options);
   };
 
+  // On date change
   const onDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
     if (selectedDate) {
@@ -465,6 +245,7 @@ const ClientDetailsScreen = () => {
     }
   };
 
+  // Get payment type display
   const getPaymentTypeDisplay = (item) => {
     if (item.type === 'manual') {
       return {
@@ -493,6 +274,7 @@ const ClientDetailsScreen = () => {
     }
   };
 
+  // Render payment item
   const renderPaymentItem = ({ item }) => {
     const displayInfo = getPaymentTypeDisplay(item);
     
@@ -518,6 +300,7 @@ const ClientDetailsScreen = () => {
     );
   };
 
+  // Navigate to payment history
   const navigateToPaymentHistory = () => {
     navigation.navigate('PaymentHistory', { 
       clientId, 
@@ -525,874 +308,519 @@ const ClientDetailsScreen = () => {
     });
   };
 
-  const renderFilingItem = ({ item }) => {
-    const filingType = FILING_TYPES.find(ft => ft.id === item.type);
-    const status = item.status?.toLowerCase() || 'pending';
-    
-    const statusColors = {
-      pending: { bg: '#fef3c7', text: '#92400e', icon: 'time-outline' },
-      completed: { bg: '#dcfce7', text: '#166534', icon: 'checkmark-done-circle' },
-      filed: { bg: '#dbeafe', text: '#1e40af', icon: 'document-text' },
-      overdue: { bg: '#fee2e2', text: '#991b1b', icon: 'alert-circle' },
-    };
-
-    const statusConfig = statusColors[status] || statusColors.pending;
-
+  if (loading) {
     return (
-      <View style={styles.filingItem}>
-        <View style={styles.filingIconContainer}>
-          <Ionicons 
-            name={filingType?.category === 'GST' ? 'receipt' : 'document-text'} 
-            size={24} 
-            color={statusConfig.text} 
-          />
-        </View>
-        
-        <View style={styles.filingContent}>
-          <View style={styles.filingHeader}>
-            <Text style={styles.filingType} numberOfLines={1}>
-              {filingType?.name || item.type}
-            </Text>
-            <Text style={[styles.filingFee, { color: statusConfig.text }]}>
-              ₹{parseFloat(item.fee || 0).toLocaleString()}
-            </Text>
-          </View>
-          
-          <Text style={styles.filingDescription} numberOfLines={1}>
-            {filingType?.description || ''}
-          </Text>
-          
-          <View style={styles.filingFooter}>
-            <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
-              <Ionicons 
-                name={statusConfig.icon} 
-                size={14} 
-                color={statusConfig.text} 
-                style={{ marginRight: 4 }}
-              />
-              <Text style={[styles.statusText, { color: statusConfig.text }]}>
-                {status.charAt(0).toUpperCase() + status.slice(1)}
-              </Text>
-            </View>
-            
-            <Text style={styles.filingDate}>
-              {item.month} • {filingType?.frequency || 'N/A'}
-            </Text>
-          </View>
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.filingAction}
-          onPress={() => handleDeleteFiling(item._id)}
-        >
-          <Ionicons name="ellipsis-vertical" size={18} color="#94a3b8" />
-        </TouchableOpacity>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3498db" />
+        <Text style={styles.loadingText}>Loading client details...</Text>
       </View>
     );
+  }
+
+  if (!client) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="sad-outline" size={50} color="#95a5a6" />
+        <Text style={styles.errorText}>Failed to load client details. Please try again.</Text>
+      </View>
+    );
+  }
+
+  // Get avatar initials
+  const getAvatarInitials = () => {
+    if (!client.name) return '?';
+    return client.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
   };
 
-  const renderEmptyFilings = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="document-text-outline" size={48} color="#9CA3AF" />
-      <Text style={styles.emptyText}>No filings found</Text>
-      <Text style={styles.emptySubtext}>Add a new filing to get started</Text>
-    </View>
-  );
-
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#2563EB" /></View>;
-  }
-  if (!client) {
-    return <View style={styles.center}><Text style={styles.emptyText}>Client not found.</Text></View>;
-  }
-
-  const completionStatus = client.totalOutstanding === 0 ? 'completed' : 'pending';
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-      {/* Client Info */}
-      <View style={styles.card}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons name="person-circle" size={54} color="#2563EB" style={{ marginRight: 14 }} />
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={styles.clientName}>{client.name}</Text>
-              <TouchableOpacity style={styles.topIconBtn} onPress={handleCall}>
-                <Ionicons name="call-outline" size={24} color="#2563EB" />
+    <View style={styles.container}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
+        {/* 1. Client Details Division */}
+        <View style={styles.section}>
+          <View style={styles.clientDetailsCard}>
+            <View style={styles.clientHeader}>
+              <View style={styles.avatarContainer}>
+                <View style={[styles.avatar, { backgroundColor: '#3498db' }]}>
+                  <Text style={styles.avatarText}>{getAvatarInitials()}</Text>
+                </View>
+              </View>
+              <View style={styles.clientInfo}>
+                <Text style={styles.clientName}>{client.name}</Text>
+                <View style={styles.clientMeta}>
+                  <Text style={styles.clientEmail}>{client.email}</Text>
+                  <Text style={styles.clientPhone}>• {client.phone}</Text>
+                </View>
+                <View style={styles.paymentStatus}>
+                  <View style={[
+                    styles.statusDot,
+                    { backgroundColor: (client.totalOutstanding || 0) > 0 ? '#EF4444' : '#10B981' }
+                  ]} />
+                  <Text style={styles.statusText}>
+                    {(client.totalOutstanding || 0) > 0 ? 'Payments Pending' : 'All Payments Complete'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.callButton} onPress={handleCall}>
+                <Ionicons name="call" size={24} color="#3498db" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.clientInfo}>{client.email}</Text>
-            <Text style={styles.clientInfo}>{client.phoneNumber}</Text>
-            <Text style={styles.clientInfo}>GST: {client.gstNumber}</Text>
-            <Text style={styles.clientInfo}>{client.address}</Text>
             
-            {/* Status Badge */}
-            <View style={[styles.completionBadge, { 
-              backgroundColor: completionStatus === 'completed' ? '#10B981' : '#F59E0B' 
-            }]}>
-              <Ionicons 
-                name={completionStatus === 'completed' ? 'checkmark-circle' : 'time-outline'} 
-                size={16} 
-                color="#fff" 
-              />
-              <Text style={styles.completionText}>
-                {(client.totalOutstanding || 0) > 0 ? 'Payments Pending' : 'All Payments Complete'}
-              </Text>
+            <View style={styles.contactInfo}>
+              <View style={styles.contactRow}>
+                <Ionicons name="business" size={18} color="#7f8c8d" />
+                <Text style={styles.contactText}>{client.businessName || 'Not specified'}</Text>
+              </View>
+              <View style={styles.contactRow}>
+                <Ionicons name="location" size={18} color="#7f8c8d" />
+                <Text style={styles.contactText}>{client.address || 'Address not available'}</Text>
+              </View>
+              {client.gstNumber && (
+                <View style={styles.contactRow}>
+                  <Ionicons name="document-text" size={18} color="#7f8c8d" />
+                  <Text style={styles.contactText}>GST: {client.gstNumber}</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
-      </View>
+
+        {/* 2. Payment Summary Division */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Payment Summary</Text>
+            <Text style={styles.lastPaymentText}>Last payment: {formatDate(client.lastPaymentDate) || 'N/A'}</Text>
+          </View>
+          
+          <View style={styles.summaryGrid}>
+            <View style={[styles.summaryCard, styles.primaryCard]}>
+              <Text style={styles.summaryLabel}>Total Added</Text>
+              <Text style={styles.summaryAmount}>₹{client.totalAdded?.toLocaleString() || '0'}</Text>
+            </View>
+            
+            <View style={[styles.summaryCard, styles.successCard]}>
+              <Text style={styles.summaryLabel}>Total Paid</Text>
+              <Text style={styles.summaryAmount}>₹{client.totalPaid?.toLocaleString() || '0'}</Text>
+            </View>
+            
+            <View style={[styles.summaryCard, styles.warningCard]}>
+              <Text style={styles.summaryLabel}>Balance</Text>
+              <Text style={styles.summaryAmount}>₹{client.totalOutstanding?.toLocaleString() || '0'}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 3. Payment Actions Division */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Payment Actions</Text>
+          </View>
+          
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.primaryButton]}
+              onPress={() => setShowAddAmountModal(true)}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#fff" />
+              <Text style={styles.actionButtonText}>Add Amount</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.recordButton]}
+              onPress={handleMarkAsPaid}
+            >
+              <Ionicons name="receipt-outline" size={20} color="#fff" />
+              <Text style={styles.actionButtonText}>Record Payment</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* 4. Recent Payments Division */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Payments</Text>
+            <TouchableOpacity onPress={navigateToPaymentHistory}>
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {recentPayments.length > 0 ? (
+            <FlatList
+              data={recentPayments}
+              renderItem={renderPaymentItem}
+              keyExtractor={(item) => item._id}
+              scrollEnabled={false}
+            />
+          ) : (
+            <View style={styles.emptyPayments}>
+              <Ionicons name="receipt-outline" size={32} color="#D1D5DB" />
+              <Text style={styles.emptyPaymentsText}>No payment history yet</Text>
+            </View>
+          )}
+        </View>
+
+        {/* 5. Upload File Division */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Files & Documents</Text>
+          </View>
+          
+          <View style={styles.uploadSection}>
+            <View style={styles.uploadInfo}>
+              <Ionicons name="folder-open" size={24} color="#3498db" />
+              <View style={styles.uploadTextContainer}>
+                <Text style={styles.uploadTitle}>Client Documents</Text>
+                <Text style={styles.uploadSubtitle}>Upload files, receipts, or any client documents</Text>
+              </View>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => setShowFileUploadModal(true)}
+            >
+              <Ionicons name="cloud-upload" size={20} color="#fff" />
+              <Text style={styles.uploadButtonText}>Upload File</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
 
       {/* Add Amount Modal */}
-      <Modal animationType="slide" transparent={true} visible={showOutstandingModal}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { borderRadius: 20, paddingHorizontal: 24 }]}>
-            {/* Header */}
-            <View style={[styles.modalHeader, { paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ backgroundColor: '#EBF5FF', padding: 10, borderRadius: 12 }}>
-                  <Ionicons name="wallet-outline" size={32} color="#2563EB" />
-                </View>
-                <View style={{ marginLeft: 16 }}>
-                  <Text style={[styles.modalTitle, { fontSize: 24, fontWeight: '600' }]}>Add Balance</Text>
-                  <Text style={[styles.headerSubtitle, { color: '#6B7280', marginTop: 4 }]}>
-                    Top up the client's balance
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity 
-                onPress={() => setShowOutstandingModal(false)} 
-                style={[styles.closeButton, { backgroundColor: '#F3F4F6', borderRadius: 50, padding: 8 }]}
-              >
-                <Ionicons name="close" size={24} color="#374151" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Quick Amount Selection */}
-            <View style={[styles.chipRow, { marginTop: 24, marginBottom: 20 }]}>
-              {['500','1000','2000','5000'].map(preset => (
-                <TouchableOpacity 
-                  key={preset} 
-                  style={[
-                    styles.chip,
-                    { 
-                      backgroundColor: outstandingAmount === preset ? '#2563EB' : '#F3F4F6',
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      borderRadius: 12,
-                      marginRight: 12
-                    }
-                  ]} 
-                  onPress={() => setOutstandingAmount(preset)}
-                >
-                  <Text style={[
-                    styles.chipText,
-                    { color: outstandingAmount === preset ? '#FFFFFF' : '#374151', fontSize: 16 }
-                  ]}>₹{preset}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Amount Input */}
-            <View style={[styles.inputContainer, { marginBottom: 24 }]}>
-              <Text style={[styles.inputLabel, { fontSize: 16, marginBottom: 8, color: '#374151' }]}>
-                Amount (₹)
-              </Text>
-              <View style={{ 
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#F9FAFB',
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                borderWidth: 1,
-                borderColor: '#E5E7EB'
-              }}>
-                <Ionicons name="cash-outline" size={24} color="#6B7280" />
-                <TextInput 
-                  style={[styles.input, { 
-                    flex: 1,
-                    marginLeft: 12,
-                    fontSize: 18,
-                    paddingVertical: 12
-                  }]}
-                  placeholder="Enter custom amount"
-                  keyboardType="numeric"
-                  value={outstandingAmount}
-                  onChangeText={setOutstandingAmount}
-                />
-              </View>
-            </View>
-
-            {/* Description Input */}
-            <View style={[styles.inputContainer, { marginBottom: 24 }]}>
-              <Text style={[styles.inputLabel, { fontSize: 16, marginBottom: 8, color: '#374151' }]}>
-                Description
-              </Text>
-              <View style={{
-                backgroundColor: '#F9FAFB',
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: '#E5E7EB'
-              }}>
-                <TextInput 
-                  style={[styles.textArea, { 
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    fontSize: 16,
-                    minHeight: 100,
-                    textAlignVertical: 'top'
-                  }]}
-                  placeholder="What is this amount for?"
-                  value={outstandingDescription}
-                  onChangeText={setOutstandingDescription}
-                  multiline
-                  numberOfLines={4}
-                />
-              </View>
-            </View>
-
-            {/* Action Buttons */}
-            <View style={[styles.modalActions, { 
-              paddingTop: 16,
-              borderTopWidth: 1,
-              borderTopColor: '#E5E7EB',
-              marginTop: 'auto'
-            }]}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton, { 
-                  paddingVertical: 12,
-                  paddingHorizontal: 20,
-                  borderRadius: 12,
-                  backgroundColor: '#F3F4F6'
-                }]} 
-                onPress={() => setShowOutstandingModal(false)}
-              >
-                <Text style={[styles.cancelButtonText, { fontSize: 16, color: '#374151' }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  styles.modalButton, 
-                  styles.submitButton,
-                  { 
-                    paddingVertical: 12,
-                    paddingHorizontal: 24,
-                    borderRadius: 12,
-                    backgroundColor: (!outstandingAmount || !outstandingDescription) ? '#93C5FD' : '#2563EB',
-                    flexDirection: 'row',
-                    alignItems: 'center'
-                  }
-                ]}
-                onPress={handleCreateOutstanding}
-                disabled={!outstandingAmount || !outstandingDescription}
-              >
-                <Ionicons name="add-circle-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={[styles.submitButtonText, { fontSize: 16 }]}>Add to Balance</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Payment Summary */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>💰 Payment Summary</Text>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Total Added</Text>
-            <Text style={[styles.summaryAmount, { color: '#2563EB' }]}>
-              ₹{client.totalAdded?.toLocaleString() || '0'}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Total Paid</Text>
-            <Text style={[styles.summaryAmount, { color: '#10B981' }]}>
-              ₹{client.totalPaid?.toLocaleString() || '0'}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Balance</Text>
-            <Text style={[styles.summaryAmount, { color: '#EF4444' }]}>
-              ₹{client.totalOutstanding?.toLocaleString() || '0'}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.lastPaymentText}>Last Payment: {formatDate(client.lastPaymentDate)}</Text>
-        <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => setShowOutstandingModal(true)}>
-            <Ionicons name="add-circle-outline" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Add Amount to Balance</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={handleMarkAsPaid}>
-            <Ionicons name="checkmark-done-circle" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Record Payment</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Recent Payments */}
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>📋 Recent Payments</Text>
-          <TouchableOpacity onPress={navigateToPaymentHistory}>
-            <Text style={styles.viewAllText}>View All</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {recentPayments.length > 0 ? (
-          <FlatList
-            data={recentPayments}
-            renderItem={renderPaymentItem}
-            keyExtractor={(item) => item._id}
-            scrollEnabled={false}
-          />
-        ) : (
-          <View style={styles.emptyPayments}>
-            <Ionicons name="receipt-outline" size={32} color="#D1D5DB" />
-            <Text style={styles.emptyPaymentsText}>No payment history yet</Text>
-          </View>
-        )}
-      </View>
+      <AddAmountModal
+        isVisible={showAddAmountModal}
+        onClose={() => setShowAddAmountModal(false)}
+        outstandingAmount={outstandingAmount}
+        setOutstandingAmount={setOutstandingAmount}
+        outstandingDescription={outstandingDescription}
+        setOutstandingDescription={setOutstandingDescription}
+        handleCreateOutstanding={handleCreateOutstanding}
+      />
 
       {/* Manual Payment Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                <Ionicons name="card-outline" size={28} color="#10B981" />
-                <View style={{ marginLeft: 10, flex: 1 }}>
-                  <Text style={styles.modalTitle}>Record Payment</Text>
-                  <Text style={styles.headerSubtitle}>Deduct from client's outstanding balance</Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
-                <Ionicons name="close" size={22} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={[styles.inputContainer, styles.modalField]}>
-              <Ionicons name="pricetag-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Amount Paid (₹)</Text>
-                <Text style={styles.balanceHint}>Available Balance: ₹{(client.totalOutstanding || 0).toLocaleString()}</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Enter amount" 
-                  keyboardType="numeric" 
-                  value={manualAmount} 
-                  onChangeText={(text) => {
-                    const numericValue = parseFloat(text) || 0;
-                    const currentBalance = client.totalOutstanding || 0;
-                    if (text === '' || numericValue <= currentBalance) {
-                      setManualAmount(text);
-                    }
-                  }}
-                />
-              </View>
-            </View>
-            
-            {/* Method Selector */}
-            <View style={[styles.inputContainer, styles.modalField]}>
-              <Text style={styles.inputLabel}>Payment Method</Text>
-              <View style={styles.methodRow}>
-                <TouchableOpacity style={[styles.methodBtn, paymentMethod === 'cash' && styles.methodBtnSelected]} onPress={() => setPaymentMethod('cash')}>
-                  <Ionicons name="cash-outline" size={20} color={paymentMethod === 'cash' ? '#fff' : '#2563EB'} />
-                  <Text style={[styles.methodBtnText, paymentMethod === 'cash' && { color: '#fff' }]}> Cash</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.methodBtn, paymentMethod === 'online' && styles.methodBtnSelected]} onPress={() => setPaymentMethod('online')}>
-                  <Ionicons name="card-outline" size={20} color={paymentMethod === 'online' ? '#fff' : '#2563EB'} />
-                  <Text style={[styles.methodBtnText, paymentMethod === 'online' && { color: '#fff' }]}> Online</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            
-            <View style={[styles.inputContainer, styles.modalField]}>
-              <Ionicons name="calendar-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Payment Date</Text>
-                <TouchableOpacity style={[styles.input, styles.dateInput]} onPress={() => setShowDatePicker(true)}>
-                  <Text style={{ color: manualDate ? '#1F2937' : '#6B7280', fontSize: 15 }}>
-                    {manualDate ? manualDate : 'Select Date'}
-                  </Text>
-                  <Ionicons name="calendar-outline" size={20} color="#2563EB" />
-                </TouchableOpacity>
-              </View>
-              {showDatePicker && (
-                <DateTimePicker
-                  value={manualDate ? new Date(manualDate) : new Date()}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={onDateChange}
-                  maximumDate={new Date()}
-                />
-              )}
-            </View>
-            
-            <View style={[styles.inputContainer, styles.modalField]}>
-              <Ionicons name="chatbox-ellipses-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Note (optional)</Text>
-                <TextInput 
-                  style={[styles.input, styles.textArea]} 
-                  placeholder="Add a note about this payment" 
-                  value={manualNote} 
-                  onChangeText={setManualNote} 
-                  multiline
-                  numberOfLines={3}
-                />
-              </View>
-            </View>
-            
-            <View style={styles.divider} />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setModalVisible(false)}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.submitButton, (!manualAmount || !manualDate) && styles.disabledButton]} 
-                onPress={handleManualSubmit}
-                disabled={!manualAmount || !manualDate}
-              >
-                <Text style={styles.submitButtonText}>Submit Payment</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Filing Status Section */}
-      <View style={[styles.card, { marginTop: 16 }]}>
-        <View style={[styles.sectionHeader, { marginBottom: 12 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="document-text-outline" size={20} color="#2563EB" style={{ marginRight: 8 }} />
-            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Filing Status</Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.addFilingButton}
-            onPress={() => setShowAddFiling(true)}
-          >
-            <Ionicons name="add" size={16} color="#fff" style={{ marginRight: 4 }} />
-            <Text style={styles.addFilingButtonText}>New Filing</Text>
-          </TouchableOpacity>
-        </View>
-
-        {loadingFilings ? (
-          <ActivityIndicator size="small" color="#2563EB" />
-        ) : (
-          <View style={styles.filingsList}>
-            {filings.length > 0 ? (
-              <FlatList
-                data={filings}
-                renderItem={renderFilingItem}
-                keyExtractor={(item) => item._id}
-                contentContainerStyle={styles.filingsContainer}
-                showsVerticalScrollIndicator={false}
-              />
-            ) : (
-              renderEmptyFilings()
-            )}
-          </View>
-        )}
-      </View>
-
-      {/* Add Filing Modal */}
-      <Modal
-        visible={showAddFiling}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowAddFiling(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="document-text-outline" size={24} color="#2563EB" />
-                <Text style={[styles.modalTitle, { marginLeft: 8 }]}>New Filing</Text>
-              </View>
-              <TouchableOpacity 
-                onPress={() => setShowAddFiling(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ flex: 1, width: '100%' }}>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Filing Type</Text>
-                <View style={[styles.pickerContainer, { minHeight: 50 }]}>
-                  <Ionicons name="document-text-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-                  <Picker
-                    selectedValue={newFiling.type}
-                    onValueChange={handleFilingTypeChange}
-                    style={[styles.picker, { height: 48 }]}
-                    dropdownIconColor="#6B7280"
-                    mode="dropdown"
-                  >
-                    {FILING_TYPES.map((type) => (
-                      <Picker.Item 
-                        key={type.id} 
-                        label={type.name} 
-                        value={type.id}
-                        style={{ 
-                          fontSize: 16,
-                          height: 50,
-                          paddingVertical: 12
-                        }}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Period</Text>
-                <View style={[styles.pickerContainer, { paddingRight: 0 }]}>
-                  <Ionicons name="calendar" size={20} color="#6B7280" style={styles.inputIcon} />
-                  <View style={{ flex: 1, flexDirection: 'row' }}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={[styles.inputLabel, { marginBottom: 4, fontSize: 12 }]}>Month</Text>
-                      <Picker
-                        selectedValue={newFiling.month?.split('-')[1] || ''}
-                        onValueChange={(month) => {
-                          const year = newFiling.month?.split('-')[0] || new Date().getFullYear();
-                          handleMonthChange(`${year}-${month.padStart(2, '0')}`);
-                        }}
-                        style={[styles.picker, { height: 44 }]}
-                        dropdownIconColor="#6B7280"
-                      >
-                        {Array.from({length: 12}, (_, i) => {
-                          const month = (i + 1).toString().padStart(2, '0');
-                          return (
-                            <Picker.Item 
-                              key={month} 
-                              label={new Date(2000, i).toLocaleString('default', { month: 'long' })} 
-                              value={month}
-                            />
-                          );
-                        })}
-                      </Picker>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Fee (₹)</Text>
-                <View style={styles.pickerContainer}>
-                  <Ionicons name="cash" size={20} color="#6B7280" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    value={newFiling.fee}
-                    onChangeText={(text) => setNewFiling({...newFiling, fee: text})}
-                    placeholder="Enter fee amount"
-                    keyboardType="numeric"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Notes (Optional)</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={newFiling.notes}
-                  onChangeText={(text) => setNewFiling({...newFiling, notes: text})}
-                  placeholder="Add any notes here"
-                  multiline
-                  numberOfLines={3}
-                />
-              </View>
-
-              <View style={styles.modalFooter}>
-                <TouchableOpacity 
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setShowAddFiling(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.modalButton, styles.submitButton]}
-                  onPress={handleSaveFiling}
-                >
-                  <Text style={styles.submitButtonText}>Save Filing</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Files Section */}
-      <View style={styles.card}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <Text style={styles.sectionTitle}>📁 Files ({client.fileCount || 0})</Text>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => setShowFileUploadModal(true)}
-          >
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.addButtonText}>Upload File</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {client.fileCount > 0 ? (
-          <TouchableOpacity style={styles.linkBtn} onPress={() => {}}>
-            <Text style={styles.linkText}>View All Files</Text>
-            <Ionicons name="chevron-forward" size={16} color="#2563EB" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="document-outline" size={48} color="#D1D5DB" />
-            <Text style={styles.emptyStateText}>No files uploaded yet</Text>
-            <Text style={styles.emptyStateSubtext}>Upload documents, receipts, or any client files</Text>
-          </View>
-        )}
-      </View>
+      <ManualPaymentModal
+        isVisible={showManualPaymentModal}
+        onClose={() => setShowManualPaymentModal(false)}
+        manualAmount={manualAmount}
+        setManualAmount={setManualAmount}
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
+        manualDate={manualDate}
+        setManualDate={setManualDate}
+        showDatePicker={showDatePicker}
+        setShowDatePicker={setShowDatePicker}
+        manualNote={manualNote}
+        setManualNote={setManualNote}
+        handleManualSubmit={handleManualSubmit}
+        client={client}
+      />
 
       {/* File Upload Modal */}
-      <Modal
-        visible={showFileUploadModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowFileUploadModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '80%', padding: 20 }]}>
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                <Ionicons name="cloud-upload-outline" size={26} color="#2563EB" />
-                <View style={{ marginLeft: 10, flex: 1 }}>
-                  <Text style={styles.modalTitle}>Upload File</Text>
-                  <Text style={styles.headerSubtitle}>Tag the file to a filing type and period</Text>
-                </View>
-              </View>
-              <TouchableOpacity 
-                onPress={() => setShowFileUploadModal(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.formGroup, styles.modalField, { marginBottom: 16 }]}>
-              <Text style={styles.inputLabel}>Filing Type</Text>
-              <View style={styles.pickerContainer}>
-                <Ionicons name="document-text-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-                <Picker
-                  selectedValue={selectedFileType}
-                  onValueChange={setSelectedFileType}
-                  style={[styles.picker, { width: '100%' }]}
-                  dropdownIconColor="#6B7280"
-                >
-                  <Picker.Item label="Select Filing Type" value="" />
-                  {FILING_TYPES.map((type) => (
-                    <Picker.Item 
-                      key={type.id} 
-                      label={`${type.name} (${type.category})`} 
-                      value={type.id}
-                    />
-                  ))}
-                </Picker>
-              </View>
-              {!!selectedFileType && (
-                <Text style={styles.helperText}>Default fee will auto-fill based on selection</Text>
-              )}
-            </View>
-
-            <View style={[styles.row, styles.modalField, { marginBottom: 16 }]}>
-              <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={styles.inputLabel}>Year</Text>
-                <View style={styles.inputContainer}>
-                  <TextInput
-                    style={[styles.input, { flex: 1 }]}
-                    value={currentYear}
-                    onChangeText={setCurrentYear}
-                    keyboardType="numeric"
-                    placeholder="YYYY"
-                    maxLength={4}
-                  />
-                </View>
-              </View>
-              
-              <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={styles.inputLabel}>Month</Text>
-                <View style={styles.inputContainer}>
-                  <TextInput
-                    style={[styles.input, { flex: 1 }]}
-                    value={currentMonth}
-                    onChangeText={(text) => {
-                      // Ensure month is between 1 and 12
-                      const month = parseInt(text) || '';
-                      if (month === '' || (month >= 1 && month <= 12)) {
-                        setCurrentMonth(month ? month.toString().padStart(2, '0') : '');
-                      }
-                    }}
-                    keyboardType="numeric"
-                    placeholder="MM"
-                    maxLength={2}
-                  />
-                </View>
-              </View>
-            </View>
-
-            <View style={[styles.formGroup, styles.modalField]}>
-              <Text style={styles.inputLabel}>Fee Amount (₹)</Text>
-              <View style={styles.inputContainer}>
-                <Ionicons name="cash" size={20} color="#6B7280" style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  value={newFiling.fee}
-                  onChangeText={(text) => setNewFiling({...newFiling, fee: text})}
-                  placeholder="Enter fee amount"
-                  keyboardType="numeric"
-                  placeholderTextColor="#9CA3AF"
-                />
-              </View>
-              <Text style={styles.helperText}>You can adjust this fee before submitting</Text>
-            </View>
-
-            <View style={styles.divider} />
-            <View style={[styles.modalFooter, { marginTop: 12 }]}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowFileUploadModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  styles.modalButton, 
-                  styles.submitButton,
-                  (!selectedFileType || !newFiling.fee) && styles.disabledButton
-                ]}
-                onPress={handleFileUpload}
-                disabled={!selectedFileType || !newFiling.fee || isUploading}
-              >
-                {isUploading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.submitButtonText}>Submit</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
+      <FileUploadModal
+        isVisible={showFileUploadModal}
+        onClose={() => setShowFileUploadModal(false)}
+        onSaveFiling={handleFileUpload}
+        loading={uploading}
+        title="Add GST Filing"
+        description="Enter the filing details"
+      />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#f8f9fa',
   },
-  center: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#f8f9fa',
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+  loadingText: {
+    marginTop: 15,
+    color: '#7f8c8d',
+    fontSize: 16,
+  },
+  errorText: {
+    marginTop: 15,
+    color: '#e74c3c',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    padding: 16,
+    paddingBottom: 30,
+  },
+  section: {
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  clientName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 4,
-    flexShrink: 1,
-  },
-  clientInfo: {
-    fontSize: 15,
-    color: '#6B7280',
-    marginBottom: 2,
-  },
-  completionBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 10,
-    alignSelf: 'flex-start',
-  },
-  completionText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2c3e50',
+  },
+  lastPaymentText: {
+    fontSize: 13,
+    color: '#7f8c8d',
   },
   viewAllText: {
-    color: '#2563EB',
+    color: '#3498db',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    marginTop: 16,
-    gap: 12,
-  },
-  // Action Buttons
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flex: 1,
-    justifyContent: 'center',
-    elevation: 2,
+  // Client Details Styles
+  clientDetailsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    elevation: 2,
+  },
+  clientHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  avatarContainer: {
+    marginRight: 16,
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  clientInfo: {
+    flex: 1,
+  },
+  clientName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  clientMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  clientEmail: {
+    color: '#7f8c8d',
+    fontSize: 14,
+  },
+  clientPhone: {
+    color: '#7f8c8d',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  paymentStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 13,
+    color: '#7f8c8d',
+  },
+  callButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#ecf0f1',
+  },
+  contactInfo: {
+    borderTopWidth: 1,
+    borderTopColor: '#ecf0f1',
+    paddingTop: 16,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  contactText: {
+    marginLeft: 10,
+    color: '#2c3e50',
+    fontSize: 14,
+  },
+  // Payment Summary Styles
+  summaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryCard: {
+    width: (width - 48) / 3,
+    padding: 12,
+    borderRadius: 10,
+  },
+  primaryCard: {
+    backgroundColor: '#e0f2fe',
+  },
+  successCard: {
+    backgroundColor: '#dcfce7',
+  },
+  warningCard: {
+    backgroundColor: '#fef9c3',
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#475569',
+    marginBottom: 4,
+  },
+  summaryAmount: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  // Action Buttons
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionButton: {
+    backgroundColor: 'red',
+
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 1,
+  },
+  addButton: {
+    backgroundColor: '#3b82f6',
+  },
+  recordButton: {
+    backgroundColor: '#10b981',
   },
   actionButtonText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 15,
-    marginLeft: 8,
-  },
-  
-  // Link Styles
-  linkBtn: {
-    marginTop: 8,
-  },
-  linkText: {
-    color: '#2563EB',
+    marginLeft: 6,
+    fontSize: 14,
     fontWeight: '500',
-    fontSize: 14,
   },
-  
-  // File Styles
-  fileText: {
-    fontSize: 14,
-    color: '#374151',
+  // Recent Payments
+  paymentHistoryItem: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 10,
+  },
+  paymentItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paymentItemLeft: {
+    marginRight: 12,
+  },
+  paymentItemInfo: {
+    flex: 1,
+  },
+  paymentItemTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2c3e50',
     marginBottom: 2,
   },
-  
+  paymentItemSubtitle: {
+    fontSize: 13,
+    color: '#7f8c8d',
+    marginBottom: 4,
+  },
+  paymentItemDescription: {
+    fontSize: 14,
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  paymentItemDate: {
+    fontSize: 12,
+    color: '#95a5a6',
+  },
+  paymentItemRight: {
+    alignItems: 'flex-end',
+  },
+  paymentItemAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptyPayments: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+  },
+  emptyPaymentsText: {
+    marginTop: 10,
+    color: '#7f8c8d',
+    fontSize: 14,
+  },
+  // Upload Section
+  uploadSection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  uploadInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  uploadTextContainer: {
+    marginLeft: 12,
+  },
+  uploadTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 2,
+  },
+  uploadSubtitle: {
+    fontSize: 13,
+    color: '#7f8c8d',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3498db',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: '500',
+  },
   // Modal Styles
   modalOverlay: {
     flex: 1,
@@ -1405,7 +833,7 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 16,
+    padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 10,
@@ -1421,8 +849,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    flex: 1,
-    marginLeft: 8,
   },
   headerSubtitle: {
     color: '#6B7280',
@@ -1433,10 +859,13 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 8,
   },
-  
-  // Form Elements
-  formGroup: {
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  inputIcon: {
+    marginRight: 12,
   },
   inputLabel: {
     fontSize: 14,
@@ -1447,74 +876,45 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
     color: '#111827',
     backgroundColor: '#F9FAFB',
-  },
-  pickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    marginBottom: 16,
-  },
-  picker: {
     flex: 1,
-    height: 44,
-    color: '#111827',
   },
-  inputIcon: {
-    marginRight: 8,
-    color: '#6B7280',
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
   helperText: {
     fontSize: 12,
     color: '#6B7280',
     marginTop: 6,
   },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
+  balanceHint: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
-  
-  // Modal Actions
-  modalActions: {
+  chipRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 20,
+    marginBottom: 16,
   },
-  modalButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 120,
+  chip: {
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginRight: 8,
   },
-  cancelButton: {
-    backgroundColor: '#F3F4F6',
-    marginRight: 10,
-  },
-  submitButton: {
-    backgroundColor: '#2563EB',
-  },
-  cancelButtonText: {
-    color: '#374151',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 15,
+  chipText: {
+    color: '#2563EB',
     fontWeight: '600',
+    fontSize: 12,
   },
-  
-  // Method Selector
   methodRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1526,7 +926,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
     marginHorizontal: 4,
@@ -1542,175 +942,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 6,
   },
-  methodBtnSelectedText: {
-    color: '#fff',
-  },
-  
-  // Empty States
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  emptyContainer: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    marginBottom: 16,
-  },
-  picker: {
-    flex: 1,
-    height: 50,
-    color: '#1F2937',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#F9FAFB',
-  },
-  modalField: {
-    marginBottom: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2563EB',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  addButtonText: {
-    color: '#fff',
-    marginLeft: 6,
-    fontWeight: '500',
-    fontSize: 14,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  uploadArea: {
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    backgroundColor: '#F9FAFB',
-  },
-  uploadText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1F2937',
-    textAlign: 'center',
-  },
-  uploadSubtext: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  changeFileButton: {
-    marginTop: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 6,
-  },
-  changeFileText: {
-    color: '#2563EB',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  chip: {
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    marginRight: 8,
-  },
-  chipText: {
-    color: '#2563EB',
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  
-  // Status Badges
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  
-  // Balance Hint
-  balanceHint: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 8,
-    fontStyle: 'italic',
-  },
-  
-  // Date Input
   dateInput: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingRight: 12,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 20,
+  },
+  modalButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 120,
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+    marginRight: 10,
+  },
+  submitButton: {
+    backgroundColor: '#2563EB',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  cancelButtonText: {
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 

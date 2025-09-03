@@ -15,6 +15,7 @@ const caRoutes = require('./routes/ca');
 const taskRoutes = require('./routes/task');
 const paymentRoutes = require('./routes/payment');
 const clientRoutes = require('./routes/client');
+const filingRoutes = require('./routes/filing');
 
 // Security middleware
 app.use(helmet());
@@ -101,6 +102,7 @@ app.use('/api/ca', caRoutes);
 app.use('/api/task', taskRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/clients', clientRoutes);
+app.use('/api/filings', filingRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

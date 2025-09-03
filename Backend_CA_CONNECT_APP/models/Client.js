@@ -16,6 +16,15 @@ const clientSchema = new mongoose.Schema({
     enum: ['Regular', 'Composition', 'IFF', 'Other'],
     default: 'Regular'
   },
+  // Filing preferences
+  filingPreferences: {
+    gst: { type: Boolean, default: false },
+    itr: { type: Boolean, default: false },
+    tds: { type: Boolean, default: false },
+    gstFilingDay: { type: Number, min: 1, max: 28, default: 20 },
+    gstReturnType: { type: String, enum: ['GSTR-1', 'GSTR-3B', 'GSTR-9'], default: 'GSTR-3B' },
+    tdsFilingType: { type: String, enum: ['24Q', '26Q', '27Q', '27EQ'], default: '24Q' }
+  },
 totalOutstanding: {
     type: Number,
     default: 0

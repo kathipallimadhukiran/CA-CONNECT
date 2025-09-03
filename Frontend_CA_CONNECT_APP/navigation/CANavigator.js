@@ -104,12 +104,12 @@ const ClientStack = () => (
 
 // Payment Stack Navigator
 const PaymentStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
+  <Stack.Navigator screenOptions={{ headerShown: true }}>
     <Stack.Screen 
       name="PaymentMain" 
       component={PaymentScreen} 
       options={{
-        headerShown: false,
+        headerShown: true,
         headerTitle: 'Payments',
         headerStyle: {
           backgroundColor: '#f8f9fa',

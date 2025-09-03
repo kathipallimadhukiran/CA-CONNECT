@@ -15,6 +15,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
+import { API_BASE_URL } from '../../config';
 
 const STATUS_ICONS = {
   pending: { icon: 'hourglass-outline', color: '#F59E0B', label: 'Pending' },
@@ -60,7 +61,7 @@ const ClientListScreen = () => {
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get("http://192.168.29.44:5000/api/clients", {
+      const res = await axios.get(`${API_BASE_URL}/clients`, {
         params: { 
           page: 1, 
           limit: 50,

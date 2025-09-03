@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config';
 import {
   View,
   Text,
@@ -113,7 +114,7 @@ const HomeScreen = () => {
 
       console.log('Testing backend with credentials:', { email, password: '***' });
 
-      const response = await fetch('http://192.168.29.44:5000/api/test-auth', {
+      const response = await fetch(`${API_BASE_URL}/test-auth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -143,8 +144,8 @@ const HomeScreen = () => {
   const loadClients = async () => {
     setClientsLoading(true);
     try {
-      // Call API directly instead of clientService
-      const res = await fetch("http://192.168.29.44:5000/api/clients?page=1&limit=50");
+      // Call API using the configured base URL
+      const res = await fetch(`${API_BASE_URL}/clients?page=1&limit=50`);
       const data = await res.json();
 
       const clientList = data.clients || [];

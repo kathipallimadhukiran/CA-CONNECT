@@ -11,6 +11,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import paymentService from '../../services/paymentService';
 import filingService from '../../services/filingService';
+import { API_BASE_URL } from '../../config';
 import AddAmountModal from '../../components/modals/AddAmountModal';
 import ManualPaymentModal from '../../components/modals/ManualPaymentModal';
 import FileUploadModal from '../../components/modals/FileUploadModal';
@@ -57,7 +58,7 @@ const ClientDetailsScreen = () => {
     setLoading(true);
     try {
       const [clientRes, paymentData] = await Promise.all([
-        fetch(`http://192.168.29.44:5000/api/clients/${clientId}`),
+        fetch(`${API_BASE_URL}/clients/${clientId}`),
         paymentService.getPaymentHistory(clientId, 5)
       ]);
       
@@ -267,7 +268,7 @@ const ClientDetailsScreen = () => {
       return {
         title: 'Amount Added',
         subtitle: 'Added to client balance',
-        color: '#2563EB',
+        color: 'red',
         icon: 'add-circle',
         prefix: '+'
       };
@@ -433,7 +434,30 @@ const ClientDetailsScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-
+   {/* 5. Upload File Division */}
+   <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Files & Documents</Text>
+          </View>
+          
+          <View style={styles.uploadSection}>
+            <View style={styles.uploadInfo}>
+              <Ionicons name="folder-open" size={24} color="#3498db" />
+              <View style={styles.uploadTextContainer}>
+                <Text style={styles.uploadTitle}>Client Documents</Text>
+                <Text style={styles.uploadSubtitle}>Upload files, receipts, or any client documents</Text>
+              </View>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => setShowFileUploadModal(true)}
+            >
+              <Ionicons name="cloud-upload" size={20} color="#fff" />
+              <Text style={styles.uploadButtonText}>Upload File</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         {/* 4. Recent Payments Division */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -458,30 +482,7 @@ const ClientDetailsScreen = () => {
           )}
         </View>
 
-        {/* 5. Upload File Division */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Files & Documents</Text>
-          </View>
-          
-          <View style={styles.uploadSection}>
-            <View style={styles.uploadInfo}>
-              <Ionicons name="folder-open" size={24} color="#3498db" />
-              <View style={styles.uploadTextContainer}>
-                <Text style={styles.uploadTitle}>Client Documents</Text>
-                <Text style={styles.uploadSubtitle}>Upload files, receipts, or any client documents</Text>
-              </View>
-            </View>
-            
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => setShowFileUploadModal(true)}
-            >
-              <Ionicons name="cloud-upload" size={20} color="#fff" />
-              <Text style={styles.uploadButtonText}>Upload File</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+     
       </ScrollView>
 
       {/* Add Amount Modal */}

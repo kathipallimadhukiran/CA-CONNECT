@@ -222,7 +222,7 @@ const PaymentHistoryScreen = () => {
     } else {
       return {
         title: 'Amount Added to Balance',
-        color: '#2563EB',
+        color: 'red',
         icon: 'add-circle'
       };
     }

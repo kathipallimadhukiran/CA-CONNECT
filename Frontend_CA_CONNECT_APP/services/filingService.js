@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
-const API_URL = 'http://192.168.29.44:5000/api/filings';
+const API_URL = `${API_BASE_URL}/filings`;
 
 // Get all filings for a client
 export const getClientFilings = async (clientId) => {

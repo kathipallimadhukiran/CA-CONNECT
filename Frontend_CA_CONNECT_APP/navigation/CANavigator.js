@@ -12,10 +12,10 @@ import ClientListScreen from '../screens/ca/ClientListScreen.js';
 import ClientDetailsScreen from '../screens/ca/ClientDetailsScreen';
 import PaymentScreen from '../screens/ca/PaymentScreen';
 import PaymentHistoryScreen from '../screens/ca/PaymentHistoryScreen';
-import CallScreen from '../screens/ca/CallScreen';
 import TaskScreen from '../screens/ca/TaskScreen';
 import AddTaskScreen from '../screens/ca/AddTaskScreen';
 import ProfileScreen from '../screens/ca/ProfileScreen';
+import Returnfilling from '../screens/ca/Returnfilling';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -31,6 +31,15 @@ const HomeStack = () => (
       component={HomeScreen}
       options={{
         headerShown: false,
+      }}
+    />
+    <Stack.Screen 
+      name="Returnfilling" 
+      component={Returnfilling}
+      options={{
+        headerShown: true,
+        headerTitle: 'Return Filling',
+        headerBackTitle: 'Back',
       }}
     />
     <Stack.Screen 
@@ -128,6 +137,7 @@ const PaymentStack = () => (
       }}
     />
   </Stack.Navigator>
+
 );
 
 // Call Stack Navigator
@@ -170,14 +180,14 @@ const CANavigator = () => {
             case 'Payments':
               iconName = focused ? 'card' : 'card-outline';
               break;
-            case 'Calls':
-              iconName = focused ? 'call' : 'call-outline';
-              break;
             case 'Tasks':
               iconName = focused ? 'clipboard' : 'clipboard-outline';
               break;
             case 'Profile':
               iconName = focused ? 'person' : 'person-outline';
+              break;
+            case 'Return':
+              iconName = focused ? 'folder-open' : 'folder-open-outline';
               break;
             default:
               iconName = 'alert';
@@ -218,6 +228,7 @@ const CANavigator = () => {
           },
         })}
       />
+      
       <Tab.Screen 
         name="Clients" 
         component={ClientStack}
@@ -228,20 +239,22 @@ const CANavigator = () => {
         component={PaymentStack}
         options={{ tabBarLabel: 'Payments' }}
       />
-      <Tab.Screen 
-        name="Calls" 
-        component={CallStack}
-        options={{ tabBarLabel: 'Calls' }}
-      />
+  
       <Tab.Screen 
         name="Tasks" 
         component={TaskStack}
         options={{ tabBarLabel: 'Tasks' }}
       />
-      <Tab.Screen 
-        name="Profile" 
-        component={ProfileStack}
-        options={{ tabBarLabel: 'Profile' }}
+       <Tab.Screen 
+        name="Return" 
+        component={Returnfilling}
+        options={{ tabBarLabel: 'Return filling ' }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            // Reset to HomeMain when Home tab is pressed
+            navigation.navigate('Returnfilling');
+          },
+        })}
       />
     </Tab.Navigator>
   );

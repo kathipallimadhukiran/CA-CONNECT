@@ -8,12 +8,14 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView
+  SafeAreaView,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { API_BASE_URL } from '../../config';
 
@@ -69,7 +71,38 @@ const AddClientScreen = () => {
     panNumber: '',
     whatsappNumber: '',
     gstType: 'Regular',
+    defaultDate: '',
+    defaultFee: '',
+    monthlyFrequency: ''
   });
+  
+  const handleBillingDayChange = (value) => {
+    // Only allow numbers and limit to 2 digits (1-31)
+    const numericValue = value.replace(/[^0-9]/g, '').slice(0, 2);
+    if (numericValue === '' || (parseInt(numericValue) >= 1 && parseInt(numericValue) <= 31)) {
+      handleInputChange('billingDay', numericValue);
+      
+      // Update the display text
+      if (numericValue) {
+        const day = parseInt(numericValue);
+        const suffix = day > 0 && day <= 31 ? getOrdinalSuffix(day) : '';
+        handleInputChange('defaultDate', `Every ${day}${suffix} of the month`);
+      } else {
+        handleInputChange('defaultDate', '');
+      }
+    }
+  };
+  
+  // Helper function to get ordinal suffix (1st, 2nd, 3rd, etc.)
+  const getOrdinalSuffix = (day) => {
+    if (day > 3 && day < 21) return 'th';
+    switch (day % 10) {
+      case 1:  return 'st';
+      case 2:  return 'nd';
+      case 3:  return 'rd';
+      default: return 'th';
+    }
+  };
 
   const handleInputChange = (field, value) => {
     // Convert to uppercase for GST and PAN fields
@@ -101,25 +134,69 @@ const AddClientScreen = () => {
   };
 
   const validateForm = () => {
-    const { firstName, lastName, email, phone, businessName, gstNumber, panNumber } = formData;
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim() || !businessName.trim()) {
-      Alert.alert('Error', 'Please fill in all required fields (*).');
+    const { 
+      firstName, 
+      lastName, 
+      email, 
+      phone, 
+      businessName, 
+      gstNumber, 
+      panNumber, 
+      whatsappNumber,
+      defaultDate,
+      defaultFee,
+      monthlyFrequency,
+      billingDay,
+      gstType
+    } = formData;
+    
+    // Required fields validation
+    const requiredFields = {
+      'First Name': firstName,
+      'Last Name': lastName,
+      'Email': email,
+      'Mobile': phone,
+      'Business Name': businessName,
+      'WhatsApp Number': whatsappNumber,
+      'Default Date': defaultDate,
+      'Default Fee': defaultFee,
+      'Monthly Frequency': monthlyFrequency
+    };
+
+    for (const [field, value] of Object.entries(requiredFields)) {
+      if (!value || (typeof value === 'string' && !value.trim())) {
+        Alert.alert('Error', `Please fill in the ${field} field.`);
+        return false;
+      }
+    }
+    
+    // Email validation - more permissive to allow various email formats
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address (e.g., user@example.com)');
       return false;
     }
     
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address.');
+    // Additional check for common email format issues
+    if (email.indexOf('@') === -1 || email.indexOf('.') === -1) {
+      Alert.alert('Error', 'Email must contain @ and a domain (e.g., example.com)');
       return false;
     }
 
+    // Phone number validation
     const phoneRegex = /^\d{10}$/;
     if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
       Alert.alert('Error', 'Please enter a valid 10-digit mobile number.');
       return false;
     }
+
+    // WhatsApp number validation
+    if (!phoneRegex.test(whatsappNumber.replace(/\s/g, ''))) {
+      Alert.alert('Error', 'Please enter a valid 10-digit WhatsApp number.');
+      return false;
+    }
     
-    // GST validation
+    // GST validation if provided
     if (gstNumber) {
       if (gstNumber.trim().length !== 15) {
         Alert.alert('Invalid GST', 'GST Number must be exactly 15 characters long.');
@@ -131,16 +208,41 @@ const AddClientScreen = () => {
       }
     }
 
-    // PAN validation
+    // PAN validation if provided
     if (panNumber) {
       if (panNumber.trim().length !== 10) {
         Alert.alert('Invalid PAN', 'PAN Number must be exactly 10 characters long.');
         return false;
       }
       if (!validatePAN(panNumber)) {
-        Alert.alert('Invalid PAN', 'Please enter a valid PAN number (e.g., AAAAA9999A)');
+        Alert.alert('Invalid PAN', 'Please enter a valid PAN number (e.g., AAAAA0000A)');
         return false;
       }
+    }
+
+    // Default Fee validation
+    if (isNaN(defaultFee) || parseFloat(defaultFee) <= 0) {
+      Alert.alert('Error', 'Please enter a valid default fee (must be a positive number).');
+      return false;
+    }
+
+    // Monthly Frequency validation
+    const frequency = parseInt(monthlyFrequency, 10);
+    if (isNaN(frequency) || frequency < 1 || frequency > 12) {
+      Alert.alert('Error', 'Monthly frequency must be a number between 1 and 12.');
+      return false;
+    }
+
+    // Billing Day validation
+    let billingDayNum;
+    try {
+      billingDayNum = parseInt(billingDay, 10);
+      if (isNaN(billingDayNum) || billingDayNum < 1 || billingDayNum > 31) {
+        throw new Error('Invalid day');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Please select a valid billing day (1-31).');
+      return false;
     }
 
     return true;
@@ -151,18 +253,39 @@ const handleSubmit = async () => {
 
   setLoading(true);
   try {
+    // Prepare the data to be sent
+    const clientData = {
+      ...formData,
+      phone: formData.phone.replace(/\s/g, ''), // Remove any spaces from phone
+      whatsappNumber: formData.whatsappNumber.replace(/\s/g, ''), // Remove any spaces from WhatsApp
+      defaultFee: parseFloat(formData.defaultFee),
+      monthlyFrequency: parseInt(formData.monthlyFrequency, 10),
+      // Format the date to ISO string for the backend
+      defaultDate: new Date(formData.defaultDate).toISOString(),
+      // Add any additional fields that need processing
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) {
+      throw new Error('Authentication token not found. Please log in again.');
+    }
+
     const response = await fetch(`${API_BASE_URL}/clients/add`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(formData),
+      body: JSON.stringify(clientData),
     });
 
     const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(result.message || 'Failed to add client.');
+      throw new Error(result.message || 'Failed to add client. Please try again.');
     }
 
     Alert.alert(
@@ -360,7 +483,7 @@ const handleSubmit = async () => {
           </View>
           
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>WhatsApp Number</Text>
+            <Text style={styles.label}>WhatsApp Number<Text style={styles.required}>*</Text></Text>
             <TextInput
               style={styles.input}
               value={formData.whatsappNumber}
@@ -370,15 +493,63 @@ const handleSubmit = async () => {
               maxLength={10}
             />
           </View>
-
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email <Text style={styles.required}>*</Text></Text>
+            <Text style={styles.label}>Email<Text style={styles.required}>*</Text></Text>
             <TextInput
               style={styles.input}
               value={formData.email}
               onChangeText={value => handleInputChange('email', value)}
               placeholder="Enter email address"
               keyboardType="email-address"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Billing Day<Text style={styles.required}>*</Text></Text>
+            <View style={styles.helperTextContainer}>
+              <Text style={styles.helperText}>
+                Enter the day of the month (1-31) for recurring billing
+              </Text>
+            </View>
+            <View style={styles.dateInputContainer}>
+              <TextInput
+                style={[styles.input, styles.dateInput]}
+                value={formData.billingDay || ''}
+                onChangeText={handleBillingDayChange}
+                placeholder="e.g., 15"
+                keyboardType="number-pad"
+                maxLength={2}
+              />
+              <Text style={styles.daySuffix}>
+                {formData.billingDay ? getOrdinalSuffix(parseInt(formData.billingDay)) : ''}
+              </Text>
+            </View>
+            {formData.billingDay && (
+              <Text style={styles.selectedDateText}>
+                Billing will occur on the {formData.billingDay}{getOrdinalSuffix(parseInt(formData.billingDay))} of every month
+              </Text>
+            )}
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Default Fee<Text style={styles.required}>*</Text></Text>
+            <TextInput
+              style={styles.input}
+              value={formData.defaultFee}
+              onChangeText={value => handleInputChange('defaultFee', value)}
+              placeholder="Enter default fee"
+              keyboardType="number-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Monthly Frequency <Text style={styles.required}>*</Text></Text>
+            <TextInput
+              style={styles.input}
+              value={formData.monthlyFrequency}
+              onChangeText={value => handleInputChange('monthlyFrequency', value)}
+              placeholder="Enter monthly frequency"
+              keyboardType="number-pad"
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -412,6 +583,17 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 20,
+  },
+  dateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  daySuffix: {
+    position: 'absolute',
+    right: 40,
+    color: '#666',
+    fontSize: 16,
   },
   header: {
     flexDirection: 'row',

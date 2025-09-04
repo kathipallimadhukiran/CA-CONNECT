@@ -442,10 +442,10 @@ const ClientDetailsScreen = () => {
           
           <View style={styles.uploadSection}>
             <View style={styles.uploadInfo}>
-              <Ionicons name="folder-open" size={24} color="#3498db" />
+              <Ionicons name="document-text-outline" size={24} color="#3498db" />
               <View style={styles.uploadTextContainer}>
-                <Text style={styles.uploadTitle}>Client Documents</Text>
-                <Text style={styles.uploadSubtitle}>Upload files, receipts, or any client documents</Text>
+                <Text style={styles.uploadTitle}>Return Filing</Text>
+                <Text style={styles.uploadSubtitle}>Upload return filing</Text>
               </View>
             </View>
             

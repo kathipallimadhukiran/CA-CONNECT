@@ -16,6 +16,7 @@ const taskRoutes = require('./routes/task');
 const paymentRoutes = require('./routes/payment');
 const clientRoutes = require('./routes/client');
 const filingRoutes = require('./routes/filing');
+const returnRoutes = require('./routes/returns');
 
 // Security middleware
 app.use(helmet());
@@ -99,10 +100,30 @@ app.post('/api/test-auth', async (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/ca', caRoutes);
-app.use('/api/task', taskRoutes);
-app.use('/api/payment', paymentRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/filings', filingRoutes);
+app.use('/api/returns', returnRoutes);
+
+// Test route to verify returns router is mounted
+app.get('/api/returns/test', (req, res) => {
+  console.log('Test route hit');
+  res.status(200).json({ 
+    success: true, 
+    message: 'Returns router is working',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Debug route to check if returns route is registered
+app.get('/api/returns/health', (req, res) => {
+  res.status(200).json({ 
+    success: true,
+    message: 'Returns route is working',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {

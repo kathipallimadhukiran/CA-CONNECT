@@ -1,9 +1,9 @@
 import React from 'react';
+import { View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TouchableOpacity } from 'react-native';
 
 // Import CA screens
 import HomeScreen from '../screens/ca/HomeScreen';
@@ -21,9 +21,40 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 // Home Stack Navigator
+// Common header styles for all screens
+const commonHeaderOptions = {
+  headerStyle: {
+    backgroundColor: '#f8f9fa',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  headerTitleStyle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  headerBackTitleVisible: false,
+  headerLeft: ({ onPress }) => (
+    <TouchableOpacity 
+      onPress={onPress} 
+      style={{ 
+        marginLeft: 16,
+        padding: 4,
+        borderRadius: 20,
+        backgroundColor: '#f0f4ff',
+      }}
+    >
+      <Ionicons name="arrow-back" size={20} color="#2563EB" />
+    </TouchableOpacity>
+  ),
+};
+
 const HomeStack = () => (
   <Stack.Navigator 
-    screenOptions={{ headerShown: false }}
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: false,
+    }}
     initialRouteName="HomeMain"
   >
     <Stack.Screen 
@@ -39,7 +70,19 @@ const HomeStack = () => (
       options={{
         headerShown: true,
         headerTitle: 'Return Filling',
-        headerBackTitle: 'Back',
+        headerStyle: {
+          backgroundColor: '#f8f9fa',
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+        headerLeft: ({ onPress }) => (
+          <TouchableOpacity 
+            onPress={onPress} 
+            style={{ marginLeft: 16 }}
+          >
+            <Ionicons name="arrow-back" size={24} color="#2563EB" />
+          </TouchableOpacity>
+        ),
       }}
     />
     <Stack.Screen 
@@ -80,7 +123,13 @@ const HomeStack = () => (
 
 // Client Stack Navigator
 const ClientStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: true ,headerTitle: 'Clients' }}>
+  <Stack.Navigator 
+    screenOptions={{ 
+      ...commonHeaderOptions,
+      headerShown: true,
+      headerTitle: 'Clients' 
+    }}
+  >
     <Stack.Screen name="ClientListMain" component={ClientListScreen} />
     <Stack.Screen
       name="ClientDetails"
@@ -113,27 +162,24 @@ const ClientStack = () => (
 
 // Payment Stack Navigator
 const PaymentStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: true }}>
+  <Stack.Navigator 
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: true
+    }}
+  >
     <Stack.Screen 
       name="PaymentMain" 
       component={PaymentScreen} 
       options={{
-        headerShown: true,
         headerTitle: 'Payments',
-        headerStyle: {
-          backgroundColor: '#f8f9fa',
-          elevation: 0,
-          shadowOpacity: 0,
-        },
       }}
     />
     <Stack.Screen 
       name="PaymentHistory" 
       component={PaymentHistoryScreen} 
       options={{
-        headerShown: true,
         headerTitle: 'Payment History',
-        headerBackTitle: 'Back',
       }}
     />
   </Stack.Navigator>
@@ -142,23 +188,62 @@ const PaymentStack = () => (
 
 // Call Stack Navigator
 const CallStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="CallMain" component={CallScreen} />
+  <Stack.Navigator 
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: true
+    }}
+  >
+    <Stack.Screen 
+      name="CallMain" 
+      component={CallScreen} 
+      options={{
+        headerTitle: 'Calls',
+      }}
+    />
   </Stack.Navigator>
 );
 
 // Task Stack Navigator
 const TaskStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="TaskMain" component={TaskScreen} />
-    <Stack.Screen name="AddTask" component={AddTaskScreen} />
+  <Stack.Navigator 
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: true
+    }}
+  >
+    <Stack.Screen 
+      name="TaskMain" 
+      component={TaskScreen} 
+      options={{
+        headerTitle: 'Tasks',
+      }}
+    />
+    <Stack.Screen 
+      name="AddTask" 
+      component={AddTaskScreen} 
+      options={{
+        headerTitle: 'Add New Task',
+      }}
+    />
   </Stack.Navigator>
 );
 
 // Profile Stack Navigator
 const ProfileStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+  <Stack.Navigator 
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: true
+    }}
+  >
+    <Stack.Screen 
+      name="ProfileMain" 
+      component={ProfileScreen} 
+      options={{
+        headerTitle: 'My Profile',
+      }}
+    />
   </Stack.Navigator>
 );
 
@@ -247,12 +332,17 @@ const CANavigator = () => {
       />
        <Tab.Screen 
         name="Return" 
-        component={Returnfilling}
-        options={{ tabBarLabel: 'Return filling ' }}
+        component={HomeStack}
+        options={{ 
+          tabBarLabel: 'Return filling',
+          headerShown: false
+        }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
-            // Reset to HomeMain when Home tab is pressed
-            navigation.navigate('Returnfilling');
+            // Prevent default action
+            e.preventDefault();
+            // Navigate to the Returnfilling screen through the HomeStack
+            navigation.navigate('Home', { screen: 'Returnfilling' });
           },
         })}
       />

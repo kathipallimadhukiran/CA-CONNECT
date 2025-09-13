@@ -1,8 +1,9 @@
 import api from '../utils/api';
+import { API_BASE_URL } from '../config';
 
 const createOutstandingPayment = async (clientId, amount, description) => {
   try {
-    const res = await api.post('/payment/outstanding', { clientId, amount, description });
+    const res = await api.post('/payments/outstanding', { clientId, amount, description });
     return res.data;
   } catch (error) {
     console.error('Error creating outstanding payment:', error.message);
@@ -12,17 +13,30 @@ const createOutstandingPayment = async (clientId, amount, description) => {
 
 const getPaymentHistory = async (clientId, limit = 10, page = 1) => {
   try {
-    const res = await api.get(`/payment/client/${clientId}/history?limit=${limit}&page=${page}`);
+    const endpoint = `/payments/client/${clientId}/history?limit=${limit}&page=${page}`;
+    console.log('Fetching payment history for client:', clientId);
+    console.log('Using endpoint:', endpoint);
+    console.log('Full URL will be:', API_BASE_URL + endpoint);
+    const res = await api.get(endpoint);
+    console.log('Payment history response:', res.data);
     return res.data;
   } catch (error) {
-    console.error('Error fetching payment history:', error.message);
+    console.error('Error fetching payment history:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    } else if (error.request) {
+      console.error('No response received:', error.request);
+    } else {
+      console.error('Error setting up request:', error.message);
+    }
     throw error;
   }
 };
 
 const markPaymentAsPaid = async (paymentId, transactionId, notes) => {
   try {
-    const res = await api.put(`/payment/${paymentId}/mark-paid`, { transactionId, notes });
+    const res = await api.put(`/payments/${paymentId}/mark-paid`, { transactionId, notes });
     return res.data;
   } catch (error) {
     console.error('Error marking payment as paid:', error.message);
@@ -37,7 +51,7 @@ const recordManualPayment = async (paymentData) => {
       throw new Error('Missing required payment information');
     }
 
-    const res = await api.post('/payment/manual', paymentData);
+    const res = await api.post('/payments/manual', paymentData);
     return res.data;
   } catch (error) {
     console.error('Error recording manual payment:', error);

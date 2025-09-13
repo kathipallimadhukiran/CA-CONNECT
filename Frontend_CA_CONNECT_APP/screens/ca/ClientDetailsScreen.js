@@ -52,26 +52,73 @@ const ClientDetailsScreen = () => {
     }
   }, []);
 
-  // ✅ fetch client details
-  const fetchClientDetails = async () => {
-    if (!clientId) return;
-    setLoading(true);
-    try {
-      const [clientRes, paymentData] = await Promise.all([
-        fetch(`${API_BASE_URL}/clients/${clientId}`),
-        paymentService.getPaymentHistory(clientId, 5)
-      ]);
-      
-      const clientData = await clientRes.json();
-      setClient(clientData);
-      setRecentPayments(paymentData.payments);
-    } catch (error) {
-      console.error('Error in fetchClientDetails:', error);
-      Alert.alert("Error", "Failed to fetch client details.");
-      setClient(null);
+  // Fetch client details
+const fetchClientDetails = async () => {
+  if (!clientId) return;
+  setLoading(true);
+  try {
+    console.log('Fetching client with ID:', clientId);
+    
+    // First: fetch client with cache-busting
+    const timestamp = new Date().getTime();
+    const clientRes = await fetch(`${API_BASE_URL}/clients/${clientId}?_t=${timestamp}`, {
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    });
+    
+    if (clientRes.status === 404) {
+      throw new Error('Client not found');
     }
+    
+    if (!clientRes.ok) {
+      throw new Error(`Failed to fetch client: ${clientRes.status} ${clientRes.statusText}`);
+    }
+    
+    const response = await clientRes.json();
+    console.log('Client API Response:', response);
+    
+    // Handle case where client is directly in response or nested under 'client' key
+    const clientData = response.client || response;
+    
+    if (!clientData) {
+      throw new Error('Client data is empty');
+    }
+
+    // Format client data to match expected structure
+    const formattedClient = {
+      ...clientData,
+      name: `${clientData.firstName || ''} ${clientData.lastName || ''}`.trim(),
+      businessName: clientData.businessName || 'N/A',
+      gstNumber: clientData.gstNumber || 'N/A',
+      panNumber: clientData.panNumber || 'N/A',
+      phoneNumber: clientData.phone || clientData.phoneNumber || 'N/A',
+      email: clientData.email || 'N/A',
+      gstType: clientData.gstType || 'N/A'
+    };
+
+    // Try to fetch payment history, but don't fail if it doesn't exist
+    let paymentData = { payments: [] };
+    try {
+      paymentData = await paymentService.getPaymentHistory(clientId, 5) || { payments: [] };
+      console.log('Payment history:', paymentData);
+    } catch (paymentError) {
+      console.warn('Could not fetch payment history:', paymentError);
+      // Continue without payment data
+    }
+
+    setClient(formattedClient);
+    setRecentPayments(paymentData.payments || []);
+  } catch (error) {
+    console.error('Error in fetchClientDetails:', error);
+    Alert.alert("Error", error.message || "Failed to fetch client details.");
+    setClient(null);
+  } finally {
     setLoading(false);
-  };
+  }
+};
+
 
   // Fetch token on component mount
   useEffect(() => {
@@ -199,10 +246,13 @@ const ClientDetailsScreen = () => {
 
   // Handle call
   const handleCall = () => {
-    if (client?.phone) {
-      Linking.openURL(`tel:${client.phone}`).catch(() => {
+    const phoneNumber = client?.phone || client?.phoneNumber || client?.mobile || '';
+    if (phoneNumber) {
+      Linking.openURL(`tel:${phoneNumber}`).catch(() => {
         Alert.alert("Error", "Unable to open the dialer.");
       });
+    } else {
+      Alert.alert("Error", "No phone number available for this client.");
     }
   };
 
@@ -341,8 +391,9 @@ const ClientDetailsScreen = () => {
           <View style={styles.clientDetailsCard}>
             <View style={styles.clientHeader}>
               <View style={styles.avatarContainer}>
-                <View style={[styles.avatar, { backgroundColor: '#3498db' }]}>
-                  <Text style={styles.avatarText}>{getAvatarInitials()}</Text>
+                {/* Default profile image for client */}
+                <View style={{ width: 60, height: 60, borderRadius: 30, overflow: 'hidden', backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="person" size={40} color="#2563EB" />
                 </View>
               </View>
               <View style={styles.clientInfo}>
@@ -434,30 +485,6 @@ const ClientDetailsScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-   {/* 5. Upload File Division */}
-   <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Files & Documents</Text>
-          </View>
-          
-          <View style={styles.uploadSection}>
-            <View style={styles.uploadInfo}>
-              <Ionicons name="document-text-outline" size={24} color="#3498db" />
-              <View style={styles.uploadTextContainer}>
-                <Text style={styles.uploadTitle}>Return Filing</Text>
-                <Text style={styles.uploadSubtitle}>Upload return filing</Text>
-              </View>
-            </View>
-            
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => setShowFileUploadModal(true)}
-            >
-              <Ionicons name="cloud-upload" size={20} color="#fff" />
-              <Text style={styles.uploadButtonText}>Upload File</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
         {/* 4. Recent Payments Division */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -514,15 +541,6 @@ const ClientDetailsScreen = () => {
         client={client}
       />
 
-      {/* File Upload Modal */}
-      <FileUploadModal
-        isVisible={showFileUploadModal}
-        onClose={() => setShowFileUploadModal(false)}
-        onSaveFiling={handleFileUpload}
-        loading={uploading}
-        title="Add GST Filing"
-        description="Enter the filing details"
-      />
     </View>
   );
 };

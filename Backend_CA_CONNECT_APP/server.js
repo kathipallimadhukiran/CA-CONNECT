@@ -21,12 +21,7 @@ const returnRoutes = require('./routes/returns');
 // Security middleware
 app.use(helmet());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
+// Rate limiting disabled for development
 
 // CORS configuration
 app.use(cors({

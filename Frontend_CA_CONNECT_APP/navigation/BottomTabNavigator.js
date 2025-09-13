@@ -20,9 +20,9 @@ const BottomTabNavigator = () => {
             case 'Dashboard':
               iconName = focused ? 'home' : 'home-outline';
               break;
-            case 'Tasks':
-              iconName = focused ? 'clipboard' : 'clipboard-outline';
-              break;
+            // case 'Tasks':
+            //   iconName = focused ? 'clipboard' : 'clipboard-outline';
+            //   break;
             case 'Reports':
               iconName = focused ? 'document-text' : 'document-text-outline';
               break;
@@ -53,7 +53,7 @@ const BottomTabNavigator = () => {
       })}
     >
       <Tab.Screen name="Dashboard" component={HomeScreen} />
-      <Tab.Screen name="Tasks" component={TaskReportingScreen} />
+    {/* <Tab.Screen name="Tasks" component={TaskReportingScreen} /> */}
       <Tab.Screen name="Reports" component={BillingScreen} />
     </Tab.Navigator>
   );

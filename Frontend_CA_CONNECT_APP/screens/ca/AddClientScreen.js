@@ -71,38 +71,10 @@ const AddClientScreen = () => {
     panNumber: '',
     whatsappNumber: '',
     gstType: 'Regular',
-    defaultDate: '',
-    defaultFee: '',
-    monthlyFrequency: ''
+    defaultFee: ''
   });
   
-  const handleBillingDayChange = (value) => {
-    // Only allow numbers and limit to 2 digits (1-31)
-    const numericValue = value.replace(/[^0-9]/g, '').slice(0, 2);
-    if (numericValue === '' || (parseInt(numericValue) >= 1 && parseInt(numericValue) <= 31)) {
-      handleInputChange('billingDay', numericValue);
-      
-      // Update the display text
-      if (numericValue) {
-        const day = parseInt(numericValue);
-        const suffix = day > 0 && day <= 31 ? getOrdinalSuffix(day) : '';
-        handleInputChange('defaultDate', `Every ${day}${suffix} of the month`);
-      } else {
-        handleInputChange('defaultDate', '');
-      }
-    }
-  };
   
-  // Helper function to get ordinal suffix (1st, 2nd, 3rd, etc.)
-  const getOrdinalSuffix = (day) => {
-    if (day > 3 && day < 21) return 'th';
-    switch (day % 10) {
-      case 1:  return 'st';
-      case 2:  return 'nd';
-      case 3:  return 'rd';
-      default: return 'th';
-    }
-  };
 
   const handleInputChange = (field, value) => {
     // Convert to uppercase for GST and PAN fields
@@ -158,9 +130,7 @@ const AddClientScreen = () => {
       'Mobile': phone,
       'Business Name': businessName,
       'WhatsApp Number': whatsappNumber,
-      'Default Date': defaultDate,
-      'Default Fee': defaultFee,
-      'Monthly Frequency': monthlyFrequency
+      'Default Fee': defaultFee
     };
 
     for (const [field, value] of Object.entries(requiredFields)) {
@@ -226,24 +196,7 @@ const AddClientScreen = () => {
       return false;
     }
 
-    // Monthly Frequency validation
-    const frequency = parseInt(monthlyFrequency, 10);
-    if (isNaN(frequency) || frequency < 1 || frequency > 12) {
-      Alert.alert('Error', 'Monthly frequency must be a number between 1 and 12.');
-      return false;
-    }
 
-    // Billing Day validation
-    let billingDayNum;
-    try {
-      billingDayNum = parseInt(billingDay, 10);
-      if (isNaN(billingDayNum) || billingDayNum < 1 || billingDayNum > 31) {
-        throw new Error('Invalid day');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Please select a valid billing day (1-31).');
-      return false;
-    }
 
     return true;
   };
@@ -259,25 +212,16 @@ const handleSubmit = async () => {
       phone: formData.phone.replace(/\s/g, ''), // Remove any spaces from phone
       whatsappNumber: formData.whatsappNumber.replace(/\s/g, ''), // Remove any spaces from WhatsApp
       defaultFee: parseFloat(formData.defaultFee),
-      monthlyFrequency: parseInt(formData.monthlyFrequency, 10),
-      // Format the date to ISO string for the backend
-      defaultDate: new Date(formData.defaultDate).toISOString(),
       // Add any additional fields that need processing
       status: 'active',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    const token = await AsyncStorage.getItem('userToken');
-    if (!token) {
-      throw new Error('Authentication token not found. Please log in again.');
-    }
-
     const response = await fetch(`${API_BASE_URL}/clients/add`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(clientData),
     });
@@ -505,50 +449,12 @@ const handleSubmit = async () => {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Billing Day<Text style={styles.required}>*</Text></Text>
-            <View style={styles.helperTextContainer}>
-              <Text style={styles.helperText}>
-                Enter the day of the month (1-31) for recurring billing
-              </Text>
-            </View>
-            <View style={styles.dateInputContainer}>
-              <TextInput
-                style={[styles.input, styles.dateInput]}
-                value={formData.billingDay || ''}
-                onChangeText={handleBillingDayChange}
-                placeholder="e.g., 15"
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-              <Text style={styles.daySuffix}>
-                {formData.billingDay ? getOrdinalSuffix(parseInt(formData.billingDay)) : ''}
-              </Text>
-            </View>
-            {formData.billingDay && (
-              <Text style={styles.selectedDateText}>
-                Billing will occur on the {formData.billingDay}{getOrdinalSuffix(parseInt(formData.billingDay))} of every month
-              </Text>
-            )}
-          </View>
-          <View style={styles.inputGroup}>
             <Text style={styles.label}>Default Fee<Text style={styles.required}>*</Text></Text>
             <TextInput
               style={styles.input}
               value={formData.defaultFee}
               onChangeText={value => handleInputChange('defaultFee', value)}
               placeholder="Enter default fee"
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Monthly Frequency <Text style={styles.required}>*</Text></Text>
-            <TextInput
-              style={styles.input}
-              value={formData.monthlyFrequency}
-              onChangeText={value => handleInputChange('monthlyFrequency', value)}
-              placeholder="Enter monthly frequency"
               keyboardType="number-pad"
               autoCapitalize="none"
               autoCorrect={false}

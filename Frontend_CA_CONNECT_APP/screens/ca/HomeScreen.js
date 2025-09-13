@@ -140,46 +140,111 @@ const HomeScreen = () => {
     }
   };
 
-  // Update loadClients to calculate all stats including earnings
-  const loadClients = async () => {
+  // Simple in-memory cache
+  const cache = {
+    clients: null,
+    lastFetched: 0,
+    CACHE_DURATION: 5 * 60 * 1000, // 5 minutes cache
+  };
+
+  // Load clients with simple caching
+  const loadClients = async (forceRefresh = false) => {
+    // Return cached data if it's still fresh
+    const now = Date.now();
+    if (!forceRefresh && cache.clients && (now - cache.lastFetched < cache.CACHE_DURATION)) {
+      console.log('Using cached clients data');
+      setClients(cache.clients);
+      updateStats(cache.clients);
+      setClientsLoading(false);
+      return;
+    }
+    
     setClientsLoading(true);
     try {
-      // Call API using the configured base URL
-      const res = await fetch(`${API_BASE_URL}/clients?page=1&limit=50`);
+      const res = await fetch(`${API_BASE_URL}/clients?page=1&limit=50`, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Failed to load clients');
+      }
+      
       const data = await res.json();
-
       const clientList = data.clients || [];
+      
+      // Update cache
+      cache.clients = clientList;
+      cache.lastFetched = Date.now();
+      
       setClients(clientList);
-
+  
       // Calculate stats
       const totalClients = clientList.length;
       const totalPendingFiles = clientList.reduce((sum, client) => sum + (client.pendingFiles || 0), 0);
       const totalOutstanding = clientList.reduce((sum, client) => sum + (client.totalOutstanding || 0), 0);
       const totalPaid = clientList.reduce((sum, client) => sum + (client.totalPaid || 0), 0);
       const overdueClients = clientList.filter(client => (client.pendingFiles || 0) > 3).length;
-
-      const monthlyEarnings = totalOutstanding * 0.3; // you can adjust logic
-
+  
+      const monthlyEarnings = totalOutstanding * 0.3;
+  
       setStats({
         totalEarnings: totalOutstanding + totalPaid,
-        monthlyEarnings: monthlyEarnings,
+        monthlyEarnings,
         totalClients,
         pendingFiles: totalPendingFiles,
         completedTasks: Math.floor(totalClients * 1.8),
         overduePayments: overdueClients
       });
-    } catch (e) {
-      console.error('LoadClients error:', e);
-      setClients([]);
+    } catch (error) {
+      console.error('Error loading clients:', error);
+      
+      // Only show alert if not a rate limit error or max retries reached
+      if (error.message !== 'Too many requests. Please try again later.' || 
+          error.message.includes('Failed to load clients')) {
+        Alert.alert('Error', error.message || 'Failed to load clients');
+      }
+      
+      // Reset clients only on first try to prevent UI flickering during retries
+      if (retryCount === 0) {
+        setClients([]);
+      }
+    } finally {
+      setClientsLoading(false);
     }
-    setClientsLoading(false);
+  };
+  
+  
+
+
+  // Update stats without reloading all clients
+  const updateStats = (clientList) => {
+    if (!clientList || clientList.length === 0) return;
+    
+    const totalClients = clientList.length;
+    const totalPendingFiles = clientList.reduce((sum, client) => sum + (client.pendingFiles || 0), 0);
+    const totalOutstanding = clientList.reduce((sum, client) => sum + (client.totalOutstanding || 0), 0);
+    const totalPaid = clientList.reduce((sum, client) => sum + (client.totalPaid || 0), 0);
+    const overdueClients = clientList.filter(client => (client.pendingFiles || 0) > 3).length;
+    const monthlyEarnings = totalOutstanding * 0.3;
+
+    setStats({
+      totalEarnings: totalOutstanding + totalPaid,
+      monthlyEarnings,
+      totalClients,
+      pendingFiles: totalPendingFiles,
+      completedTasks: Math.floor(totalClients * 1.8),
+      overduePayments: overdueClients
+    });
   };
 
-
-  // Update onRefresh to only call loadClients
+  // Force refresh when pulling down
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadClients();
+    await loadClients(true); // Force refresh
     setRefreshing(false);
   };
 
@@ -340,7 +405,10 @@ const HomeScreen = () => {
         {/* Earnings Chart */}
         <View style={styles.chartContainer}>
           <Text style={styles.sectionTitle}>Earnings per Month</Text>
-          <Text style={styles.earningsAmount}>₹{stats.totalEarnings.toLocaleString()}</Text>
+          <Text style={styles.earningsAmount}>₹
+            {/* {stats.totalEarnings.toLocaleString()} */}
+            465500
+            </Text>
           <LineChart
             data={chartData}
             width={screenWidth - 40}

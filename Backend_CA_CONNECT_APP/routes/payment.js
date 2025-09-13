@@ -7,12 +7,69 @@ const Client = require('../models/Client');
 
 const router = express.Router();
 
-// @route   GET /api/payment
-// @desc    Get all payments (temporary public access)
-// @access  Public (temporary)
-// @route   GET /api/payment
+// All routes in this file are prefixed with /api/payments
+
+// Test route to verify payment router is working
+router.get('/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Payment routes are working',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'GET    /test',
+      'GET    /client/:clientId/history',
+      'GET    /',
+      'GET    /task/:taskId',
+      'POST   /outstanding',
+      'POST   /manual',
+      'PUT    /:paymentId/mark-paid'
+    ]
+  });
+});
+
+// @route   GET /client/:clientId/history
+// @desc    Get payment history for a specific client
+// @access  Private
+// Full path: /api/payments/client/:clientId/history
+router.get('/client/:clientId/history', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { limit = 10, page = 1 } = req.query;
+
+    // Validate client exists
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+
+    const query = { clientId };
+    
+    const payments = await Payment.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const totalPayments = await Payment.countDocuments(query);
+
+    res.json({
+      payments,
+      pagination: {
+        total: totalPayments,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(totalPayments / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get payment history error:', error);
+    res.status(500).json({ message: 'Server error while fetching payment history' });
+  }
+});
+
+// @route   GET /
 // @desc    Get all payments (with pagination & summary)
 // @access  Public (or protect with auth if needed)
+// Full path: /api/payments/
 router.get('/', async (req, res) => {
   try {
     const { limit = 10, page = 1 } = req.query;
@@ -46,7 +103,8 @@ router.get('/', async (req, res) => {
 });
 
 
-// @route   GET /api/payment/task/:taskId
+// @route   GET /task/:taskId
+// Full path: /api/payments/task/:taskId
 router.get('/task/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -334,6 +392,15 @@ router.put('/:paymentId/mark-paid', async (req, res) => {
     console.error('Mark payment as paid error:', error);
     res.status(500).json({ message: 'Server error while marking payment as paid' });
   }
+});
+
+// Add a test route to verify the payment router is working
+router.get('/test', (req, res) => {
+  res.status(200).json({ 
+    success: true, 
+    message: 'Payment routes are working',
+    timestamp: new Date().toISOString()
+  });
 });
 
 module.exports = router;

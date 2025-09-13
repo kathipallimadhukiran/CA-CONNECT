@@ -9,7 +9,18 @@ const Task = require('../models/Task');
 // @desc    Add a new client (no auth required)
 // @access  Public
 router.post('/add', async (req, res) => {
-  const { email, firstName, lastName, phone, businessName, gstNumber, panNumber, whatsappNumber, gstType } = req.body;
+  const { 
+    email, 
+    firstName, 
+    lastName, 
+    phone, 
+    businessName, 
+    gstNumber, 
+    panNumber, 
+    whatsappNumber, 
+    gstType, 
+    defaultFee = 0 
+  } = req.body;
 
   if (!email || !firstName || !lastName || !phone || !businessName) {
     return res.status(400).json({ message: 'Please provide email, name, phone, and business name.' });
@@ -25,7 +36,8 @@ router.post('/add', async (req, res) => {
       gstNumber,
       panNumber,
       whatsappNumber,
-      gstType
+      gstType,
+      defaultFee: Number(defaultFee) || 0
     });
 
     const savedClient = await newClient.save();
@@ -44,6 +56,42 @@ router.post('/add', async (req, res) => {
 // @route   GET /api/clients
 // @desc    Get all clients (no auth required)
 // @access  Public
+// @route   PUT /api/clients/:id/update-balance
+// @desc    Update client's balance
+// @access  Public
+router.put('/:id/update-balance', async (req, res) => {
+  try {
+    const { totalOutstanding } = req.body;
+    
+    if (typeof totalOutstanding !== 'number') {
+      return res.status(400).json({ success: false, message: 'Total outstanding must be a number' });
+    }
+
+    const client = await Client.findByIdAndUpdate(
+      req.params.id,
+      { totalOutstanding },
+      { new: true, runValidators: true }
+    );
+
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Client not found' });
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Client total outstanding updated successfully',
+      data: { totalOutstanding: client.totalOutstanding }
+    });
+  } catch (error) {
+    console.error('Error updating client balance:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error while updating client balance',
+      error: error.message 
+    });
+  }
+});
+
 router.get('/', async (req, res) => {
   const { page = 1, limit = 50, search = '' } = req.query;
 
@@ -85,6 +133,62 @@ router.get('/', async (req, res) => {
   }
 });
 
+// @route   GET /api/clients/active
+// @desc    Get all active clients
+// @access  Public
+router.get('/active', async (req, res) => {
+  try {
+    const { search } = req.query;
+    const query = { isActive: true };
+    
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { businessName: searchRegex },
+        { email: searchRegex },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const clients = await Client.find(query).sort({ businessName: 1 });
+    res.json({ success: true, data: clients });
+  } catch (error) {
+    console.error('Error fetching active clients:', error);
+    res.status(500).json({ success: false, message: 'Error fetching active clients' });
+  }
+});
+
+// @route   PUT /api/clients/:id
+// @desc    Update a client's information
+// @access  Public
+router.put('/:id', async (req, res) => {
+  try {
+    const { defaultFee, ...updateData } = req.body;
+    
+    // If defaultFee is provided, ensure it's a number
+    if (defaultFee !== undefined) {
+      updateData.defaultFee = Number(defaultFee) || 0;
+    }
+    
+    const updatedClient = await Client.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedClient) {
+      return res.status(404).json({ message: 'Client not found.' });
+    }
+
+    res.json({
+      message: 'Client updated successfully.',
+      client: updatedClient
+    });
+  } catch (error) {
+    console.error('Error updating client:', error);
+    res.status(500).json({ message: 'Server error while updating client.' });
+  }
+});
 
 // @route   GET /api/clients/:id
 // @desc    Get a single client by ID (no auth required)

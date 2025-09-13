@@ -47,7 +47,8 @@ const PaymentScreen = () => {
       setLoading(true);
       setError(null);
 
-      const url = `${API_BASE_URL}/payment?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      const url = `${API_BASE_URL}/payments?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      console.log('Fetching payments from:', url);
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed: ${response.status}`);
 

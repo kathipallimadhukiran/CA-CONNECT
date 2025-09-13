@@ -20,59 +20,61 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
 import { API_BASE_URL } from '../../config';
 
+// Response interceptor
+axios.interceptors.response.use(
+  response => response,
+  error => Promise.reject(error)
+);
+
 const { width, height } = Dimensions.get('window');
 
 // Define styles
 
 
 // Generate months from current month to previous months
-const getLastSixMonths = () => {
+// Generate all 12 months of the current year
+const getAllMonths = () => {
   const months = [];
   const date = new Date();
-  const currentMonth = date.getMonth();
+  const currentMonth = date.getMonth(); // 0 = Jan
   const currentYear = date.getFullYear();
-  
-  // Start from current month and go back 5 more months (total 6 months)
-  for (let i = 0; i < 6; i++) {
-    // Calculate month and year (handling year transitions)
-    const month = (currentMonth - i + 12) % 12;
-    const year = currentYear - Math.floor((i - currentMonth) / 12);
-    
-    // Format month name (short)
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthName = monthNames[month];
-    
-    // Format display values
-    const formattedMonth = `${monthName} ${year}`;
-    const monthKey = `${monthName} '${year.toString().slice(-2)}`;
-    
-    // Add to beginning of array to maintain reverse chronological order
-    months.unshift({
-      value: formattedMonth,
-      key: monthKey,
-      monthName: monthName,
-      month: month + 1, // 1-12
-      year: year,
-      displayName: monthName,
-      fullYear: year,
-      isCurrent: i === 0 // Mark current month
+  const monthNames = [
+    "Jan","Feb","Mar","Apr","May","Jun","Jul",
+    "Aug","Sep","Oct","Nov","Dec"
+  ];
+
+  for (let i = 0; i < 12; i++) {
+    months.push({
+      key: `${monthNames[i]}-${currentYear}`,
+      monthName: monthNames[i],
+      month: i + 1,
+      year: currentYear,
+      displayName: monthNames[i],
+      fullYear: currentYear,
+      isCurrent: i === currentMonth,
     });
-    
-    // Move to previous month
-    date.setMonth(date.getMonth() - 1);
   }
-  
   return months;
 };
 
-const months = getLastSixMonths();
+// Reorder months so current month stays after previous ones
+const reorderMonths = () => {
+  const allMonths = getAllMonths();
+  const currentIndex = allMonths.findIndex((m) => m.isCurrent);
+
+  const previous = allMonths.slice(0, currentIndex);
+  const current = allMonths[currentIndex];
+  const future = allMonths.slice(currentIndex + 1);
+
+  return [...previous, current, ...future];
+};
+
+const months = reorderMonths();
+
 
 const STATUS_OPTIONS = [
-  { id: 'completed', label: 'Completed', color: '#10B981', icon: 'checkmark-circle' },
-  { id: 'in_progress', label: 'In Progress', color: '#3B82F6', icon: 'time' },
-  { id: 'pending', label: 'Pending', color: '#F59E0B', icon: 'alert-circle' },
-  { id: 'not_started', label: 'Not Started', color: '#9CA3AF', icon: 'ellipse-outline' },
-  { id: 'overdue', label: 'Overdue', color: '#EF4444', icon: 'alert' }
+  { id: 'filed', label: 'File', color: '#10B981', icon: 'checkmark-circle' },
+  { id: 'not_filed', label: 'Not File', color: '#EF4444', icon: 'close-circle' }
 ];
 
 const Returnfilling = () => {
@@ -89,7 +91,9 @@ const Returnfilling = () => {
   const [clients, setClients] = useState([]);
   const [filteredClients, setFilteredClients] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState(null);
   const scrollViewRef = useRef(null);
+
   
   // Update filtered clients when clients or search query changes
   useEffect(() => {
@@ -126,99 +130,136 @@ const Returnfilling = () => {
     });
   }, [navigation]);
 
+
+  // Simple retry mechanism with limited retries
+  const fetchWithRetry = async (url, options = {}) => {
+    const maxRetries = 3;
+    let lastError;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await axios({
+          ...options,
+          url: `${API_BASE_URL}${url}`,
+          withCredentials: true,
+          headers: {
+            'Content-Type': 'application/json',
+            ...options.headers,
+          },
+          transformResponse: [
+            (data) => {
+              try {
+                return typeof data === 'string' ? JSON.parse(data) : data;
+              } catch (e) {
+                console.error('Error parsing JSON response:', e);
+                return data; // Return as is if parsing fails
+              }
+            }
+          ]
+        });
+        
+        // Ensure consistent response format
+        if (response.data && typeof response.data === 'object') {
+          // Check if the response indicates an error
+          if (response.data.error) {
+            throw new Error(`API Error: ${response.data.message || 'Unknown error'}`);
+          }
+          return response;
+        } else if (typeof response.data === 'string') {
+          // If we still have a string, try to parse it
+          try {
+            const parsedData = JSON.parse(response.data);
+            if (parsedData && parsedData.error) {
+              throw new Error(`API Error: ${parsedData.message || 'Unknown error'}`);
+            }
+            response.data = parsedData;
+            return response;
+          } catch (e) {
+            throw new Error('Invalid JSON response from server');
+          }
+        }
+        
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxRetries) {
+          // Retrying API call...
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        }
+      }
+    }
+    throw lastError; // If all retries failed, throw the last error
+  };
+
   const fetchClients = useCallback(async () => {
     setLoading(true);
+    setRefreshing(true);
+    setError(null);
+    
     try {
-      console.log('Fetching clients and returns data...');
-      
-      const timestamp = new Date().getTime();
-      
-      const [clientsRes, returnsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/clients`, {
-          params: { 
-            page: 1, 
-            limit: 50,
-            _t: timestamp,
-            ...(searchQuery.trim() && { search: searchQuery.trim() })
-          },
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          }
-        }),
-        axios.get(`${API_BASE_URL}/returns`, {
-          params: { _t: timestamp },
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          }
-        })
-      ]);
-      
-      const clientsData = clientsRes.data.clients || [];
-      const returnsData = returnsRes.data.returns || returnsRes.data.data || [];
-      
-      console.log(`Fetched ${clientsData.length} clients and ${returnsData.length} return records`);
-      console.log('Returns data structure:', returnsRes.data);
-      
-      // Create a map of client statuses
-      const clientStatusMap = {};
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      
-      console.log('Raw returns data:', JSON.stringify(returnsData, null, 2));
-      
-      returnsData.forEach(returnItem => {
-        const clientId = returnItem.client?._id || returnItem.client;
-        if (!clientId || !returnItem.monthNumber || !returnItem.year) return;
-
-        if (!clientStatusMap[clientId]) {
-          clientStatusMap[clientId] = {};
+      // Fetch all clients with their return statuses in one go
+      const currentYear = new Date().getFullYear();
+      const response = await fetchWithRetry('/returns/all', {
+        method: 'get',
+        params: { 
+          year: currentYear,
+          _t: new Date().getTime(),
+          ...(searchQuery.trim() && { search: searchQuery.trim() })
         }
-
-        // Always use monthNumber from backend (1-12)
-        const monthIndex = returnItem.monthNumber;
-        if (monthIndex < 1 || monthIndex > 12) return;
-        
-        const monthName = monthNames[monthIndex - 1];
-        const year = returnItem.year;
-        const monthKey = `${monthName} '${year.toString().slice(-2)}`;
-
-        // Store backend status directly - we'll map it in renderStatusCell
-        console.log(`Mapping status for client ${clientId}, ${monthKey}: ${returnItem.status}`);
-        clientStatusMap[clientId][monthKey] = returnItem.status;
       });
       
-      console.log('Processed status map:', JSON.stringify(clientStatusMap, null, 2));
-      console.log('Sample month keys being generated:', months.map(m => `${m.monthName} '${m.year.toString().slice(-2)}`));
-   
+      const clientsData = Array.isArray(response.data?.data) ? response.data.data : [];
       
-      // Merge return statuses with client data
-      const clientsWithStatus = clientsData.map(client => ({
-        ...client,
-        status: clientStatusMap[client._id] || {}
-      }));
+      // Process the clients data
+      const processedClients = clientsData.map(item => {
+        const { client, months } = item;
+        const clientStatusMap = {};
+        const monthsData = {};
+        
+        // Process each month's status
+        Object.entries(months).forEach(([monthNum, monthData]) => {
+          const m = parseInt(monthNum);
+          if (m >= 1 && m <= 12) {
+            const monthName = monthData.monthName || getShortMonthName(m);
+            const yearShort = String(currentYear).slice(-2);
+            const monthKey = `${monthName} '${yearShort}`;
+            const status = monthData.status || 'not_filed';
+            
+            monthsData[m] = {
+              status,
+              month: m,
+              monthName
+            };
+            
+            clientStatusMap[monthKey] = status;
+          }
+        });
+        
+        return {
+          ...client,
+          _id: client._id,
+          status: clientStatusMap,
+          returns: {
+            gst: {
+              [currentYear]: monthsData
+            }
+          }
+        };
+      });
       
-      setClients(clientsWithStatus);
       
-      if (searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase();
-        const filtered = clientsWithStatus.filter(client => 
-          (client.name?.toLowerCase().includes(query) ||
-          client.email?.toLowerCase().includes(query) ||
-          client.phone?.includes(query))
-        );
-        setFilteredClients(filtered);
-      } else {
-        setFilteredClients(clientsWithStatus);
-      }
+      // Update state with the processed data
+      setClients(processedClients);
+      setFilteredClients(processedClients);
       
     } catch (error) {
-      console.error('Error fetching data:', error);
-      Alert.alert('Error', 'Failed to fetch data. Please try again.');
+      console.error('Error in fetchClients:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to load client data';
+      setError(errorMessage);
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [searchQuery]);
 
@@ -231,17 +272,9 @@ const Returnfilling = () => {
   };
 
   const handleStatusUpdate = (status) => {
-    // Map the status to ensure we're using the correct format
-    const statusMap = {
-      'not_started': 'pending',
-      'in_progress': 'in-progress',
-      'completed': 'completed',
-      'overdue': 'filed',
-      'pending': 'pending',
-      'filed': 'filed'
-    };
-    
-    setTempStatus(status);
+    // Only allow 'filed' or 'not_filed' statuses
+    const mappedStatus = status === 'filed' ? 'filed' : 'not_filed';
+    setTempStatus(mappedStatus);
     setShowConfirmation(true);
     setStatusModalVisible(false);
   };
@@ -252,93 +285,192 @@ const Returnfilling = () => {
   };
 
   const confirmStatusUpdate = async () => {
+    if (!selectedClient || !selectedMonth || tempStatus === undefined) {
+      Alert.alert('Error', 'Missing required data for update');
+      return;
+    }
+
+    setLoading(true);
+    
     try {
-      if (!selectedClient || !selectedMonth) {
-        throw new Error('Missing required data for update');
+      // Find the client
+      const client = clients.find(c => c._id === selectedClient);
+      if (!client) {
+        Alert.alert('Error', 'Client not found');
+        return;
       }
+
+      // Only 'filed' or 'not_filed' statuses are allowed
+      const backendStatus = tempStatus === 'filed' ? 'filed' : 'not_filed';
       
-      setLoading(true);
-      
-      // Status mapping (frontend -> backend)
-      const statusMapToBackend = {
-        'not_started': 'pending',
-        'in_progress': 'in-progress',
-        'completed': 'completed',
-        'overdue': 'filed',
-        'pending': 'pending'
-      };
-      
-      const backendStatus = statusMapToBackend[tempStatus] || 'pending';
-      
-      // Get month name in full format (e.g., "September")
       const monthNames = [
         'January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'
       ];
-      const fullMonthName = monthNames[selectedMonth.month - 1];
       
+      const fullMonthName = monthNames[selectedMonth.month - 1];
+      const monthKey = `${selectedMonth.monthName} '${selectedMonth.year.toString().slice(-2)}`;
+      
+      // Create optimistic update
+      const updatedClients = clients.map(c => {
+        if (c._id === selectedClient) {
+          return {
+            ...c,
+            status: {
+              ...c.status,
+              [monthKey]: backendStatus
+            }
+          };
+        }
+        return c;
+      });
+      
+      // Update local state immediately for better UX
+      setClients(updatedClients);
+      setFilteredClients(updatedClients);
+      
+      // Prepare update data
       const updateData = {
         clientId: selectedClient,
-        month: `${fullMonthName} ${selectedMonth.year}`,
-        status: backendStatus,
+        month: fullMonthName,
         monthNumber: selectedMonth.month,
-        year: selectedMonth.year
+        year: selectedMonth.year,
+        status: backendStatus,
+        gstNumber: client.gstNumber,
+        fee: client.defaultFee || 3000,
+        totalOutstanding: client.totalOutstanding || 0
       };
       
-      console.log('Updating status:', updateData);
-      
+      // Send update to server
       const response = await axios.put(
         `${API_BASE_URL}/returns/update-status`,
         updateData,
-        {
-          headers: {
-            'Content-Type': 'application/json'
+        { 
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
           },
-          timeout: 10000
+          timeout: 10000 
         }
       );
       
-      if (response.data.success) {
-        // Refetch data to ensure consistency with backend
-        await fetchClients();
-        
-        Alert.alert('Success', 'Status updated successfully');
-      } else {
+      if (!response.data.success) {
         throw new Error(response.data.message || 'Failed to update status');
       }
       
+      // Refresh data from server to ensure consistency
+      await fetchClients();
+      
+      Alert.alert('Success', 'Status updated successfully');
     } catch (error) {
       console.error('Error updating status:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update status');
+      // Revert to previous state on error
+      await fetchClients();
+      Alert.alert('Error', error.message || 'Failed to update status. Please try again.');
     } finally {
       setLoading(false);
       setShowConfirmation(false);
+      setStatusModalVisible(false);
       setTempStatus('');
       setSelectedStatus('');
+      setSelectedClient(null);
+      setSelectedMonth(null);
     }
   };
+  
 
 
 const renderStatusCell = (client, month) => {
   if (!client || !month) return null;
   
   const monthKey = `${month.monthName} '${month.year.toString().slice(-2)}`;
-  const backendStatus = (client.status && client.status[monthKey]) || 'pending';
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1; // 1-12
   
-  // Map backend status to frontend status
-  const statusMap = {
-    'pending': 'not_started',
-    'in-progress': 'in_progress',
-    'completed': 'completed',
-    'filed': 'overdue'
+  // Determine if the month is in the past, current, or future
+  const isPastMonth = month.year < currentYear || 
+                     (month.year === currentYear && month.month < currentMonth);
+  const isFutureMonth = month.year > currentYear || 
+                       (month.year === currentYear && month.month > currentMonth);
+  
+  // Get the status from client.returns.months or default to 'not_filed'
+  let backendStatus = 'not_filed';
+  
+  // Check if there's a status in the client data
+  
+  // First check the client.status object which contains the actual status
+  if (client.status) {
+    // Make sure the key format matches exactly with how it's stored
+    const statusKey = `${month.monthName} '${month.year.toString().slice(-2)}`;
+    if (client.status[statusKey] !== undefined) {
+      backendStatus = client.status[statusKey];
+    }
+  }
+  
+  // Fallback to check returns.months if status not found in client.status
+  if (backendStatus === 'not_filed' && client.returns?.months) {
+    const monthEntry = Object.entries(client.returns.months).find(([key, m]) => {
+      const monthNum = parseInt(key, 10);
+      return m && monthNum === month.month && client.returns.year === month.year;
+    });
+    
+    if (monthEntry?.[1]?.status) {
+      backendStatus = monthEntry[1].status;
+    }
+  }
+  // Fallback to old format if needed
+  else if (client.status && client.status[monthKey]) {
+    backendStatus = client.status[monthKey];
+  }
+  
+  // For future months, always show 'Not Started' and make non-editable
+  if (isFutureMonth) {
+    return (
+      <View style={[
+        styles.statusCell, 
+        { 
+          backgroundColor: '#F3F4F6',
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
+          borderRadius: 8,
+          opacity: 0.7
+        }
+      ]}>
+        <Text style={[styles.statusText, { color: '#6B7280' }]}>
+          Not Started
+        </Text>
+      </View>
+    );
+  }
+  
+  // Determine the status to display - only 'filed' or 'not_filed'
+  const getStatusConfig = (status) => {
+    // First check if status is an object with a 'status' property
+    const statusValue = status && typeof status === 'object' ? status.status : status;
+    
+    const isFiled = statusValue === 'filed' || statusValue === 'completed';
+    
+    const config = isFiled ? {
+      color: '#10B981', 
+      label: 'Filed',
+      icon: 'checkmark-circle',
+      isCompleted: true
+    } : {
+      color: '#EF4444',
+      label: 'Not Filed',
+      icon: 'close-circle',
+      isCompleted: false
+    };
+    
+    return config;
   };
   
-  const frontendStatus = statusMap[backendStatus] || 'not_started';
-  const statusConfig = STATUS_OPTIONS.find(opt => opt.id === frontendStatus) || { 
-    color: '#9CA3AF', 
-    label: 'Not Started',
-    icon: 'help-circle-outline'
-  };
+
+  // Use the backend status directly if available, otherwise default to 'not_filed'
+  const statusToUse = backendStatus || 'not_filed';
+  const statusConfig = getStatusConfig(statusToUse);
+  const showCheckmark = statusConfig.isCompleted;
   
   return (
     <TouchableOpacity 
@@ -351,18 +483,18 @@ const renderStatusCell = (client, month) => {
           borderRadius: 8,
         }
       ]}
-      onPress={() => handleStatusSelect(client._id, month, frontendStatus)}
+      onPress={() => handleStatusSelect(client._id, month, statusToUse)}
     >
       {/* Radio button indicator */}
       <View style={[
         styles.radioButton,
         {
           borderColor: statusConfig.color,
-          backgroundColor: frontendStatus !== 'not_started' ? statusConfig.color : 'transparent'
+          backgroundColor: showCheckmark ? statusConfig.color : 'transparent'
         }
       ]}>
-        {frontendStatus !== 'not_started' && (
-          <View style={[styles.radioButtonInner, { backgroundColor: '#FFFFFF' }]} />
+        {showCheckmark && (
+          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
         )}
       </View>
       
@@ -371,7 +503,7 @@ const renderStatusCell = (client, month) => {
         styles.statusText, 
         { 
           color: statusConfig.color,
-          fontWeight: frontendStatus !== 'not_started' ? '600' : '400',
+          fontWeight: statusToUse !== 'not_started' ? '600' : '400',
           fontSize: 11
         }
       ]}>
@@ -419,6 +551,7 @@ const renderStatusCell = (client, month) => {
     );
   }
 
+  
   return (
     <SafeAreaView style={styles.container}>
       {/* Search bar */}
@@ -431,57 +564,29 @@ const renderStatusCell = (client, month) => {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-      
       </View>
 
       {/* Status Grid */}
       <View style={styles.statusSection}>
-        <ScrollView 
-          ref={scrollViewRef}
-          horizontal 
-          showsHorizontalScrollIndicator={true}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View>
-            {/* Header Row */}
-            <View style={styles.headerRow}>
-              <View style={styles.headerCell}>
-                <Text style={styles.headerText}>Business Name</Text>
-              </View>
-              {months.map((month, index) => (
-                <View key={`month-header-${month.month}-${month.year}-${index}`} style={styles.monthHeaderCell}>
-                  <Text style={[
-                    styles.monthHeaderText,
-                    month.isCurrent && { fontWeight: 'bold', color: '#3B82F6' }
-                  ]}>
-                    {month.displayName}
-                  </Text>
-                  <Text style={[
-                    styles.monthYearText,
-                    month.isCurrent && { color: '#3B82F6' }
-                  ]}>
-                    {month.fullYear}
-                  </Text>
-                </View>
-              ))}
+        <View style={styles.gridContainer}>
+          {/* Fixed Business Names Column */}
+          <View style={styles.fixedColumn}>
+            <View style={[styles.headerCell, { borderRightWidth: 1, borderRightColor: '#E5E7EB' }]}>
+              <Text style={styles.headerText}>Business Name</Text>
             </View>
-
-            {/* Client Rows */}
             <FlatList
               data={filteredClients}
-              renderItem={renderClientItem}
+              renderItem={({ item }) => (
+                <View style={styles.clientNameCell}>
+                  <Text style={styles.clientNameText} numberOfLines={1}>
+                    {item.businessName || item.name || 'Unnamed Business'}
+                  </Text>
+                </View>
+              )}
               keyExtractor={(item) => item._id}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  colors={['#3B82F6']}
-                  tintColor="#3B82F6"
-                />
-              }
               ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="document-text-outline" size={48} color="#9CA3AF" />
+                <View style={[styles.emptyContainer, { width: 200 }]}>
+                  <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
                   <Text style={styles.emptyText}>
                     {loading ? 'Loading...' : 'No clients found'}
                   </Text>
@@ -489,7 +594,70 @@ const renderStatusCell = (client, month) => {
               }
             />
           </View>
-        </ScrollView>
+
+          {/* Scrollable Months Section */}
+          <ScrollView
+            ref={scrollViewRef}
+            horizontal
+            showsHorizontalScrollIndicator={true}
+            onLayout={() => {
+              // Auto-scroll to current month
+              const currentIndex = months.findIndex((m) => m.isCurrent);
+              if (currentIndex !== -1 && scrollViewRef.current) {
+                const scrollPosition = currentIndex * 100; // 100 = width of each month cell
+                scrollViewRef.current.scrollTo({
+                  x: scrollPosition,
+                  animated: true,
+                });
+              }
+            }}
+            style={styles.scrollableSection}
+          >
+            <View>
+              {/* Header Row */}
+              <View style={styles.headerRow}>
+                {months.map((month, index) => (
+                  <View key={`month-header-${month.key}-${index}`} style={styles.monthHeaderCell}>
+                    <Text style={[
+                      styles.monthHeaderText,
+                      month.isCurrent && { fontWeight: 'bold', color: '#3B82F6' }
+                    ]}>
+                      {month.displayName}
+                    </Text>
+                    <Text style={[
+                      styles.monthYearText,
+                      month.isCurrent && { color: '#3B82F6' }
+                    ]}>
+                      {month.fullYear}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Client Rows */}
+              <FlatList
+                data={filteredClients}
+                ListEmptyComponent={
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>
+                      {loading ? 'Loading clients...' : 'No clients found'}
+                    </Text>
+                  </View>
+                }
+                renderItem={({ item }) => (
+                  <View style={styles.clientRow}>
+                    {months.map((month) => (
+                      <View key={`${item._id}-${month.key}`} style={styles.statusCell}>
+                        {renderStatusCell(item, month)}
+                      </View>
+                    ))}
+                  </View>
+                )}
+                keyExtractor={(item) => item._id}
+              />
+            </View>
+          </ScrollView>
+        </View>
       </View>
 
       {/* Status Update Modal */}
@@ -687,8 +855,25 @@ const styles = StyleSheet.create({
       marginRight: 8,
       color: '#6B7280',
     },
- 
-  
+    
+    // Grid Container
+    gridContainer: {
+      flex: 1,
+      flexDirection: 'row',
+    },
+    
+    // Fixed Column (Business Names)
+    fixedColumn: {
+      width: 200,
+      borderRightWidth: 1,
+      borderRightColor: '#E5E7EB',
+      backgroundColor: '#FAFBFC',
+    },
+    
+    // Scrollable Section (Months)
+    scrollableSection: {
+      flex: 1,
+    },
     
     // Loading & Empty States
     loadingContainer: {
@@ -697,18 +882,31 @@ const styles = StyleSheet.create({
       alignItems: 'center',
       backgroundColor: '#FFFFFF',
     },
+    emptyState: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    emptyStateText: {
+      fontSize: 16,
+      color: '#6B7280',
+      textAlign: 'center',
+      marginTop: 10,
+    },
     emptyContainer: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 40,
+      padding: 20,
     },
     emptyText: {
-      fontSize: 16,
+      fontSize: 14,
       color: '#6B7280',
       textAlign: 'center',
       fontFamily: 'System',
-      lineHeight: 24,
+      lineHeight: 20,
+      marginTop: 8,
     },
     
     // Status Grid
@@ -716,25 +914,21 @@ const styles = StyleSheet.create({
       flex: 1,
       backgroundColor: '#FFFFFF',
     },
-    scrollContent: {
-      paddingBottom: 20,
-    },
     
     // Header Row
     headerRow: {
       flexDirection: 'row',
-      borderBottomWidth: 2,
+      borderBottomWidth: 1,
       borderBottomColor: '#E5E7EB',
-      backgroundColor: '#F1F5F9',
-      paddingVertical: 0,
+      backgroundColor: '#F8FAFC',
+      minHeight: 60,
     },
     headerCell: {
-      width: 200,
-      paddingHorizontal: 16,
-      paddingVertical: 16,
+      width: '100%',
+      padding: 16,
       justifyContent: 'center',
-      borderRightWidth: 1,
-      borderRightColor: '#E5E7EB',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
       backgroundColor: '#F8FAFC',
     },
     headerText: {
@@ -747,14 +941,15 @@ const styles = StyleSheet.create({
     // Month Headers
     monthHeaderCell: {
       width: 100,
-      paddingHorizontal: 8,
-      paddingVertical: 12,
+      padding: 8,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: '#F8FAFC',
       borderRightWidth: 1,
       borderRightColor: '#E5E7EB',
-      minHeight: 60,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
+      height: 60,
     },
     monthHeaderText: {
       fontWeight: '700',
@@ -784,14 +979,17 @@ const styles = StyleSheet.create({
       padding: 8,
       justifyContent: 'center',
       alignItems: 'center',
-    },
-    clientNameCell: {
-      width: 200,
-      padding: 16,
-      justifyContent: 'center',
       borderRightWidth: 1,
       borderRightColor: '#E5E7EB',
+    },
+    clientNameCell: {
+      width: '100%',
+      padding: 16,
+      justifyContent: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E7EB',
       backgroundColor: '#FAFBFC',
+      minHeight: 70,
     },
     clientNameText: {
       fontSize: 14,

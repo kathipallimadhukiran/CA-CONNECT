@@ -1,3 +1,20 @@
+// Return Stack Navigator
+const ReturnStack = () => (
+  <Stack.Navigator 
+    screenOptions={{
+      ...commonHeaderOptions,
+      headerShown: true
+    }}
+  >
+    <Stack.Screen 
+      name="Returnfilling" 
+      component={Returnfilling} 
+      options={{
+        headerTitle: 'Return Filling',
+      }}
+    />
+  </Stack.Navigator>
+);
 import React from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -205,29 +222,29 @@ const CallStack = () => (
 );
 
 // Task Stack Navigator
-const TaskStack = () => (
-  <Stack.Navigator 
-    screenOptions={{
-      ...commonHeaderOptions,
-      headerShown: true
-    }}
-  >
-    <Stack.Screen 
-      name="TaskMain" 
-      component={TaskScreen} 
-      options={{
-        headerTitle: 'Tasks',
-      }}
-    />
-    <Stack.Screen 
-      name="AddTask" 
-      component={AddTaskScreen} 
-      options={{
-        headerTitle: 'Add New Task',
-      }}
-    />
-  </Stack.Navigator>
-);
+// const TaskStack = () => (
+//   <Stack.Navigator 
+//     screenOptions={{
+//       ...commonHeaderOptions,
+//       headerShown: true
+//     }}
+//   >
+//     <Stack.Screen 
+//       name="TaskMain" 
+//       component={TaskScreen} 
+//       options={{
+//         headerTitle: 'Tasks',
+//       }}
+//     />
+//     <Stack.Screen 
+//       name="AddTask" 
+//       component={AddTaskScreen} 
+//       options={{
+//         headerTitle: 'Add New Task',
+//       }}
+//     />
+//   </Stack.Navigator>
+// );
 
 // Profile Stack Navigator
 const ProfileStack = () => (
@@ -325,26 +342,18 @@ const CANavigator = () => {
         options={{ tabBarLabel: 'Payments' }}
       />
   
-      <Tab.Screen 
+      {/* <Tab.Screen 
         name="Tasks" 
         component={TaskStack}
         options={{ tabBarLabel: 'Tasks' }}
-      />
-       <Tab.Screen 
+      /> */}
+      <Tab.Screen 
         name="Return" 
-        component={HomeStack}
+        component={ReturnStack}
         options={{ 
           tabBarLabel: 'Return filling',
           headerShown: false
         }}
-        listeners={({ navigation }) => ({
-          tabPress: (e) => {
-            // Prevent default action
-            e.preventDefault();
-            // Navigate to the Returnfilling screen through the HomeStack
-            navigation.navigate('Home', { screen: 'Returnfilling' });
-          },
-        })}
       />
     </Tab.Navigator>
   );

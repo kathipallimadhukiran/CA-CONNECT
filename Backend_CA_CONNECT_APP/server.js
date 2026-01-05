@@ -136,7 +136,7 @@ app.use((err, req, res, next) => {
 });
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://kathipallimadhu:5YQE4RGlnP2zm9pS@userdata.gxuwo.mongodb.net/?retryWrites=true&w=majority', {
+mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://kathipallimadhu_db_user:y2BVxgBUIAN6vKMN@caconnectapp.mvddfk7.mongodb.net/', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })

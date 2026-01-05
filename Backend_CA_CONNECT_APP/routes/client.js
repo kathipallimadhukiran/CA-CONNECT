@@ -9,19 +9,22 @@ const Task = require('../models/Task');
 // @desc    Add a new client (no auth required)
 // @access  Public
 router.post('/add', async (req, res) => {
-  const { 
-    email, 
-    firstName, 
-    lastName, 
-    phone, 
-    businessName, 
-    gstNumber, 
-    panNumber, 
-    whatsappNumber, 
-    gstType, 
-    defaultFee = 0 
+  const {
+    email,
+    firstName,
+    lastName,
+    phone,
+    businessName,
+    caUserName,
+    CaUserName,
+    gstNumber,
+    panNumber,
+    whatsappNumber,
+    gstType,
+    defaultFee = 0
   } = req.body;
 
+  console.log("Received client data:", req.body);
   if (!email || !firstName || !lastName || !phone || !businessName) {
     return res.status(400).json({ message: 'Please provide email, name, phone, and business name.' });
   }
@@ -34,11 +37,13 @@ router.post('/add', async (req, res) => {
       phone,
       businessName,
       gstNumber,
+      caUserName: caUserName || CaUserName,   // 👈 IMPORTANT
       panNumber,
       whatsappNumber,
       gstType,
       defaultFee: Number(defaultFee) || 0
     });
+
 
     const savedClient = await newClient.save();
 
@@ -62,7 +67,7 @@ router.post('/add', async (req, res) => {
 router.put('/:id/update-balance', async (req, res) => {
   try {
     const { totalOutstanding } = req.body;
-    
+
     if (typeof totalOutstanding !== 'number') {
       return res.status(400).json({ success: false, message: 'Total outstanding must be a number' });
     }
@@ -77,29 +82,33 @@ router.put('/:id/update-balance', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Client not found' });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Client total outstanding updated successfully',
       data: { totalOutstanding: client.totalOutstanding }
     });
   } catch (error) {
     console.error('Error updating client balance:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Server error while updating client balance',
-      error: error.message 
+      error: error.message
     });
   }
 });
 
 router.get('/', async (req, res) => {
-  const { page = 1, limit = 50, search = '' } = req.query;
+  const { page = 1, limit = 50, search = '', caUserName } = req.query;
 
   try {
-    let query = {};
+    let matchQuery = {};
+
+    if (caUserName) {
+      matchQuery.caUserName = caUserName;
+    }
 
     if (search) {
-      query.$or = [
+      matchQuery.$or = [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
@@ -107,31 +116,104 @@ router.get('/', async (req, res) => {
       ];
     }
 
-    const clients = await Client.find(query)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    // Map to frontend format
-    const clientsList = clients.map(c => ({
-      _id: c._id,
-      name: `${c.firstName} ${c.lastName}`,
-      email: c.email,
-      phoneNumber: c.phone,
-      address: c.businessName,
-      gstType: c.gstType,
-      gstNumber: c.gstNumber,
-      panNumber: c.panNumber,
-      pendingFiles: 0,
-      totalOutstanding: 0
-    }));
-
-    res.json({ clients: clientsList });
+    const clients = await Client.aggregate([
+      { $match: matchQuery },
+      {
+        $lookup: {
+          from: "payments",
+          localField: "_id",
+          foreignField: "clientId",
+          as: "payments"
+        }
+      },
+      {
+        $addFields: {
+          totalAdded: {
+            $sum: {
+              $map: {
+                input: "$payments",
+                as: "p",
+                in: {
+                  $cond: [
+                    { $eq: ["$$p.type", "outstanding"] },
+                    "$$p.amount",
+                    0
+                  ]
+                }
+              }
+            }
+          },
+          totalPaidOutstanding: {
+            $sum: {
+              $map: {
+                input: "$payments",
+                as: "p",
+                in: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $eq: ["$$p.type", "outstanding"] },
+                        { $eq: ["$$p.status", "completed"] }
+                      ]
+                    },
+                    "$$p.amount",
+                    0
+                  ]
+                }
+              }
+            }
+          },
+          manualPaid: {
+            $sum: {
+              $map: {
+                input: "$payments",
+                as: "p",
+                in: {
+                  $cond: [
+                    { $eq: ["$$p.type", "manual"] },
+                    "$$p.amount",
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          totalOutstanding: {
+            $subtract: [
+              "$totalAdded",
+              { $add: ["$totalPaidOutstanding", "$manualPaid"] }
+            ]
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          name: { $concat: ["$firstName", " ", "$lastName"] },
+          email: 1,
+          phoneNumber: "$phone",
+          address: "$businessName",
+          caUserName: 1,
+          gstType: 1,
+          gstNumber: 1,
+          panNumber: 1,
+          totalOutstanding: 1
+        }
+      },
+      { $skip: (page - 1) * Number(limit) },
+      { $limit: Number(limit) }
+    ]);
+    res.json({ clients });
   } catch (error) {
-    console.error('Error fetching clients:', error);
-    res.status(500).json({ message: 'Server error while fetching clients.' });
+    console.error("Error fetching clients:", error);
+    res.status(500).json({ message: "Server error while fetching clients." });
   }
 });
+
 
 // @route   GET /api/clients/active
 // @desc    Get all active clients
@@ -140,7 +222,7 @@ router.get('/active', async (req, res) => {
   try {
     const { search } = req.query;
     const query = { isActive: true };
-    
+
     if (search) {
       const searchRegex = new RegExp(search, 'i');
       query.$or = [
@@ -149,7 +231,7 @@ router.get('/active', async (req, res) => {
         { phone: { $regex: search, $options: 'i' } }
       ];
     }
-    
+
     const clients = await Client.find(query).sort({ businessName: 1 });
     res.json({ success: true, data: clients });
   } catch (error) {
@@ -164,12 +246,12 @@ router.get('/active', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { defaultFee, ...updateData } = req.body;
-    
+
     // If defaultFee is provided, ensure it's a number
     if (defaultFee !== undefined) {
       updateData.defaultFee = Number(defaultFee) || 0;
     }
-    
+
     const updatedClient = await Client.findByIdAndUpdate(
       req.params.id,
       { $set: updateData },
@@ -237,7 +319,8 @@ router.get('/:id', async (req, res) => {
       name: `${client.firstName} ${client.lastName}`,
       email: client.email,
       phoneNumber: client.phone,
-      address: client.businessName,
+      businessName: client.businessName,
+      address: client.businessName, // Keeping this for backward compatibility
       gstType: client.gstType,
       gstNumber: client.gstNumber,
       panNumber: client.panNumber,

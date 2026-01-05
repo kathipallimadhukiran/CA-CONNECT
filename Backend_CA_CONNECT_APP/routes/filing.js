@@ -111,44 +111,58 @@ router.post('/', async (req, res) => {
 // @access  Public
 router.put('/:filingId/filed', async (req, res) => {
   try {
+    const { fee } = req.body;  // <-- Editable fee from frontend
     const filing = await Filing.findById(req.params.filingId);
-    if (!filing) {
-      return res.status(404).json({ msg: 'Filing not found' });
-    }
+    if (!filing) return res.status(404).json({ msg: 'Filing not found' });
 
-    if (filing.status !== 'filed') {
-      filing.status = 'filed';
-      filing.filedAt = new Date();
-      
-      if (req.body.notes) {
-        filing.notes = req.body.notes;
-      }
+    const client = await Client.findById(filing.clientId);
+    if (!client) return res.status(404).json({ msg: 'Client not found' });
 
+    // if no manual fee → use defaultFee
+    const finalFee = fee !== undefined ? fee : client.defaultFee || filing.fee || 0;
+
+    // update filing
+    filing.status = 'filed';
+    filing.filedAt = new Date();
+    filing.fee = finalFee;
+    if (req.body.notes) filing.notes = req.body.notes;
+    await filing.save();
+
+    // create payment only if > 0
+    if (finalFee > 0) {
+      const payment = new Payment({
+        clientId: filing.clientId,
+        amount: finalFee,
+        status: 'pending',
+        type: 'outstanding',
+        description: `${filing.type} filing for ${filing.month}`,
+        dueDate: new Date(),
+        notes: 'Generated during filing status update'
+      });
+
+      await payment.save();
+
+      // update client outstanding
+      await Client.findByIdAndUpdate(
+        filing.clientId,
+        { $inc: { totalOutstanding: finalFee } }
+      );
+
+      filing.paymentId = payment._id;
       await filing.save();
-
-      // Create payment record if fee > 0
-      if (filing.fee > 0) {
-        const payment = new Payment({
-          clientId: filing.clientId,
-          amount: filing.fee,
-          type: 'debit',
-          description: `${filing.type} filing for ${filing.month}`,
-          paymentDate: new Date(),
-          paymentMethod: 'filing',
-          status: 'completed',
-          reference: `FILING-${filing._id}`
-        });
-        
-        await payment.save();
-      }
     }
 
-    res.json(filing);
+    res.json({
+      success: true,
+      filing
+    });
+
   } catch (err) {
-    console.error(err.message);
+    console.error(err);
     res.status(500).send('Server Error');
   }
 });
+
 
 // @route   DELETE /api/filings/:id
 // @desc    Delete a filing

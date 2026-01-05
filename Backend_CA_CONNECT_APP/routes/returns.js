@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const Return = require('../models/Return');
 const Client = require('../models/Client');
 const Payment = require('../models/Payment');
+const Filing = require('../models/Filing');
+
 const { check, validationResult } = require('express-validator');
 
 // Helper function to update client balance and create payment record
@@ -78,15 +80,22 @@ const getMonthName = (monthNumber) => {
 // @access  Public
 router.get('/all', async (req, res) => {
   try {
-    const { 
+    const {
       year = new Date().getFullYear(),
       month,
       status,
-      search
+      search,
+      caUserName
     } = req.query;
 
     // Get all clients (not just active ones)
     const clientQuery = {};
+
+    // Add caUserName filter if provided
+    if (caUserName) {
+      clientQuery.caUserName = caUserName;
+    }
+
     if (search) {
       clientQuery.$or = [
         { businessName: { $regex: search, $options: 'i' } },
@@ -97,7 +106,7 @@ router.get('/all', async (req, res) => {
     }
 
     const clients = await Client.find(clientQuery, 'businessName name email phone gstNumber isActive').lean();
-    
+
     // Get all returns for the current year for these clients
     const returns = await Return.find({
       year: parseInt(year),
@@ -129,8 +138,8 @@ router.get('/all', async (req, res) => {
       // Initialize all months with 'not_filed' status
       const allMonths = {};
       for (let m = 1; m <= 12; m++) {
-        allMonths[m] = clientReturn.months[m] || { 
-          month: m, 
+        allMonths[m] = clientReturn.months[m] || {
+          month: m,
           status: 'not_filed',
           monthName: getMonthName(m)
         };
@@ -186,7 +195,7 @@ router.get('/all', async (req, res) => {
         limit: responseData.length
       }
     });
-    
+
   } catch (error) {
     console.error('Error fetching return filings:', error);
     res.status(500).json({
@@ -203,7 +212,7 @@ router.get('/all', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { clientId, gstNumber, year } = req.query;
-    
+
     if (!clientId || !gstNumber || !year) {
       return res.status(400).json({
         success: false,
@@ -212,14 +221,14 @@ router.get('/', async (req, res) => {
     }
 
     console.log(`Fetching returns for client ${clientId}, GST ${gstNumber}, year ${year}`);
-    
+
     // Find or create return document for the client, GST, and year
     const returnDoc = await Return.findOne({
       client: clientId,
       gstNumber,
       year: parseInt(year, 10)
     }).populate('client', 'name email phoneNumber gstNumber');
-    
+
     if (!returnDoc) {
       // If no document exists, create a default structure with all months as pending
       const defaultMonths = {};
@@ -230,7 +239,7 @@ router.get('/', async (req, res) => {
           monthName: getMonthName(month)
         };
       }
-      
+
       return res.json({
         success: true,
         data: {
@@ -244,10 +253,10 @@ router.get('/', async (req, res) => {
         }
       });
     }
-    
+
     // Convert to the required format
     const formattedData = returnDoc.getFormattedData();
-    
+
     res.json({
       success: true,
       data: formattedData
@@ -268,16 +277,16 @@ router.get('/', async (req, res) => {
 router.get('/client/:clientId', async (req, res) => {
   try {
     const { clientId } = req.params;
-    
+
     if (!mongoose.Types.ObjectId.isValid(clientId)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid client ID format'
       });
     }
-    
+
     console.log(`Fetching all returns for client ${clientId}`);
-    
+
     // Get client details
     const client = await Client.findById(clientId);
     if (!client) {
@@ -286,11 +295,11 @@ router.get('/client/:clientId', async (req, res) => {
         message: 'Client not found'
       });
     }
-    
+
     // Get all returns for this client
     const returns = await Return.find({ client: clientId })
       .sort({ year: -1 });
-    
+
     // Group by GST and year
     const result = {
       client: {
@@ -303,13 +312,13 @@ router.get('/client/:clientId', async (req, res) => {
       },
       gst: {}
     };
-    
+
     // Process each return document
     for (const returnDoc of returns) {
       if (!result.gst[returnDoc.gstNumber]) {
         result.gst[returnDoc.gstNumber] = {};
       }
-      
+
       if (!result.gst[returnDoc.gstNumber][returnDoc.year]) {
         result.gst[returnDoc.gstNumber][returnDoc.year] = {
           pending: [],
@@ -317,13 +326,13 @@ router.get('/client/:clientId', async (req, res) => {
           overdue: []
         };
       }
-      
+
       // Process each month in the return document if months exists and is iterable
       if (returnDoc.months && typeof returnDoc.months.entries === 'function') {
         for (const [month, data] of returnDoc.months.entries()) {
           // Skip if data is null or undefined
           if (!data) continue;
-          
+
           const monthData = {
             month: parseInt(month, 10),
             monthName: getMonthName(parseInt(month, 10)),
@@ -334,7 +343,7 @@ router.get('/client/:clientId', async (req, res) => {
             updatedAt: data.updatedAt || new Date(),
             updatedBy: data.updatedBy || null
           };
-          
+
           // Categorize by status
           const status = data.status === 'filed' ? 'overdue' : data.status;
           if (result.gst[returnDoc.gstNumber][returnDoc.year][status]) {
@@ -343,7 +352,7 @@ router.get('/client/:clientId', async (req, res) => {
         }
       }
     } // End of for...of loop
-    
+
     res.json({
       success: true,
       data: result
@@ -362,155 +371,58 @@ router.get('/client/:clientId', async (req, res) => {
 // @route   PUT /api/returns/update-status
 // @desc    Update return status for a client, GST, year, and month
 // @access  Public
-router.put('/update-status', ...updateStatusValidation, async (req, res) => {
-  const requestTime = new Date();
-  
+router.put('/update-status', async (req, res) => {
+
   try {
-    // Log the incoming request with detailed information
-    console.log('\n=== INCOMING REQUEST ===');
-    console.log('Time:', requestTime.toISOString());
-    console.log('Method:', req.method);
-    console.log('URL:', req.originalUrl);
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-    console.log('Params:', JSON.stringify(req.params, null, 2));
-    console.log('Query:', JSON.stringify(req.query, null, 2));
-    console.log('==========================\n');
+    const { clientId, status, fee } = req.body;
 
-    // Validate request
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const errorData = {
-        success: false,
-        message: 'Validation failed',
-        errors: formatValidationErrors(errors)
-      };
-      console.error('Validation errors:', errorData);
-      return res.status(400).json(errorData);
+    const client = await Client.findById(clientId);
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    const finalFee = fee ?? client.defaultFee ?? 0;
+
+    // update filing here based on your DB design
+    await Return.updateOne(
+      { client: clientId, year: req.body.year },
+      {
+        $set: {
+          [`months.${req.body.monthNumber}.status`]: status,
+          [`months.${req.body.monthNumber}.fee`]: finalFee,
+          [`months.${req.body.monthNumber}.updatedAt`]: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+
+    if (status === "filed" && finalFee > 0) {
+
+      const payment = new Payment({
+        clientId,
+        amount: finalFee,
+        status: "pending",
+        type: "outstanding",
+        paymentMethod: "online", // Using 'online' as it's a valid enum value
+        description: `Return Filing ${req.body.month} ${req.body.year}`,
+        dueDate: new Date(),
+        reference: `RETURN-${clientId}-${req.body.month}-${req.body.year}`,
+        notes: "Auto generated when filing marked as filed"
+      });
+
+
+      await payment.save();
+
+      await Client.findByIdAndUpdate(
+        clientId,
+        { $inc: { totalOutstanding: finalFee } }
+      );
     }
 
-    const { clientId, monthNumber, status, year, gstNumber, remarks = '', documents = [] } = req.body;
-    const userId = req.user?._id || new mongoose.Types.ObjectId('000000000000000000000001');
-    
-    // Find or create the return document
-    let returnDoc = await Return.findOne({ client: clientId, gstNumber, year });
-    
-    const monthInt = parseInt(monthNumber, 10);
-    const monthName = getMonthName(monthInt);
-    const currentDate = new Date();
-    
-    // If no document exists, create a new one with all months initialized
-    if (!returnDoc) {
-      // Initialize all months with pending status
-      const monthsMap = new Map();
-      for (let i = 1; i <= 12; i++) {
-        monthsMap.set(i.toString(), {
-          month: i,
-          status: 'pending',
-          updatedAt: currentDate,
-          updatedBy: userId
-        });
-      }
-      
-      returnDoc = new Return({
-        client: clientId,
-        gstNumber,
-        year,
-        createdBy: userId,
-        months: monthsMap
-      });
-    }
-    
-    // Ensure months is a Map
-    if (!(returnDoc.months instanceof Map)) {
-      // Convert plain object to Map if needed
-      const monthsMap = new Map();
-      Object.entries(returnDoc.months).forEach(([key, value]) => {
-        monthsMap.set(key, value);
-      });
-      returnDoc.months = monthsMap;
-    }
-    
-    // Update the specific month's status
-    const monthData = {
-      month: monthInt,
-      status,
-      remarks,
-      documents,
-      updatedBy: userId,
-      updatedAt: currentDate
-    };
-    
-    // Check if we're marking as completed and need to update balance
-    const isStatusChangeToCompleted = status === 'completed' && 
-      (!returnDoc.months.get(monthNumber) || returnDoc.months.get(monthNumber).status !== 'completed');
-    
-    // Update the months map
-    returnDoc.months.set(monthNumber.toString(), monthData);
-    returnDoc.markModified('months');
-    
-    // Save the updated document
-    const updatedReturn = await returnDoc.save();
-    
-    // If status changed to completed, update client balance
-    if (isStatusChangeToCompleted) {
-      const description = `Filing for ${monthName} ${year} - GST: ${gstNumber}`;
-      // Assuming a fixed fee of 500 for return filing - adjust as needed
-      const filingFee = 500; 
-      
-      await updateClientBalance(clientId, filingFee, description);
-      console.log(`Updated balance for client ${clientId} for ${description}`);
-    }
-    
-    // Get the client details for the response
-    const client = await Client.findById(clientId).select('firstName lastName email phone businessName gstNumber');
-    
-    // Format the response
-    const response = {
-      success: true,
-      message: 'Return status updated successfully',
-      data: {
-        client: {
-          _id: client._id,
-          name: `${client.firstName} ${client.lastName}`,
-          email: client.email,
-          phone: client.phone,
-          businessName: client.businessName,
-          gstNumber: client.gstNumber
-        },
-        return: updatedReturn.getFormattedData()
-      }
-    };
-    
-    console.log('Return status updated successfully:', response);
-    res.json(response);
-    
+    res.json({ success: true });
+
   } catch (err) {
-    console.error('Error updating return status:', err);
-    
-    const errorTime = new Date();
-    console.error('\n=== ERROR OCCURRED ===');
-    console.error('Time:', errorTime.toISOString());
-    console.error('Error:', err.message);
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Stack:', err.stack);
-      console.error('Request Details:', {
-        method: req.method,
-        url: req.originalUrl,
-        headers: req.headers,
-        body: req.body,
-        params: req.params,
-        query: req.query
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Error updating return status',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    console.log(err);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 });
 

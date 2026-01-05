@@ -20,5 +20,8 @@
     "typescript.preferences.quoteStyle": "single",
     "prettier.singleQuote": true,
     "prettier.jsxSingleQuote": true,
-    "prettier.trailingComma": "es5"
+    "prettier.trailingComma": "es5",
+    "[javascriptreact]": {
+        "editor.defaultFormatter": "vscode.typescript-language-features"
+    }
 }

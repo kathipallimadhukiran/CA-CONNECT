@@ -9,6 +9,7 @@ const clientSchema = new mongoose.Schema({
   phone: { type: String, required: true, trim: true },
   businessName: { type: String, required: true, trim: true },
   gstNumber: { type: String, trim: true },
+  caUserName: { type: String },
   panNumber: { type: String, trim: true },
   whatsappNumber: { type: String, trim: true },
   gstType: {

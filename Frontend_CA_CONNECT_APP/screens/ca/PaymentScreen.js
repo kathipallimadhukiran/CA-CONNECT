@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,20 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { API_BASE_URL } from '../../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PaymentScreen = () => {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [caEmail, setCaEmail] = useState(null);
 
   // Filter and sort states
   const [filter, setFilter] = useState('all'); // all | completed | pending
@@ -30,6 +34,7 @@ const PaymentScreen = () => {
 
   // Date range
   const [showDatePicker, setShowDatePicker] = useState(null);
+  const [useDateFilter, setUseDateFilter] = useState(false);
   const [dateRange, setDateRange] = useState({
     from: new Date(new Date().setDate(new Date().getDate() - 30)),
     to: new Date()
@@ -42,32 +47,76 @@ const PaymentScreen = () => {
     pending: 0
   });
 
-  const fetchPayments = async () => {
+  const fetchCAPayments = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const url = `${API_BASE_URL}/payments?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
-      console.log('Fetching payments from:', url);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Failed: ${response.status}`);
+      // Get CA email from AsyncStorage
+      const email = await AsyncStorage.getItem('userEmail');
+      if (!email) {
+        throw new Error('CA email not found. Please login again.');
+      }
+      setCaEmail(email);
 
-      const data = await response.json();
-      const filteredByDate = (data.payments || []).filter(p => {
+      // 1. First get all clients for this CA
+      const clientsResponse = await fetch(`${API_BASE_URL}/clients?caUserName=${encodeURIComponent(email)}`);
+      if (!clientsResponse.ok) throw new Error('Failed to fetch clients');
+      const { clients } = await clientsResponse.json();
+
+      if (!clients || clients.length === 0) {
+        setPayments([]);
+        setStats({ totalAmount: 0, received: 0, pending: 0 });
+        return;
+      }
+
+      // 2. Get payments for all clients
+      const clientIds = clients.map(c => c._id);
+      let url = `${API_BASE_URL}/payments`;
+
+      if (useDateFilter) {
+        url += `?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      }
+
+      const paymentsResponse = await fetch(url);
+      if (!paymentsResponse.ok) throw new Error('Failed to fetch payments');
+      const data = await paymentsResponse.json();
+
+      // Filter payments by client IDs and date range if enabled
+      const filteredPayments = (data.payments || []).filter(p => {
+        const clientMatch = clientIds.includes(p.clientId);
+        if (!useDateFilter) return clientMatch;
+
         const createdAt = new Date(p.createdAt);
-        return createdAt >= dateRange.from && createdAt <= dateRange.to;
+        return clientMatch && createdAt >= dateRange.from && createdAt <= dateRange.to;
       });
 
-      setPayments(filteredByDate);
+      setPayments(filteredPayments);
 
-      // Stats
-      let total = 0, received = 0, pending = 0;
-      filteredByDate.forEach(p => {
-        total += p.amount;
-        if (p.status === 'completed') received += p.amount;
-        else pending += (p.amount - (p.paidAmount || 0));
+      let outstandingAdded = 0;
+      let outstandingPaid = 0;
+      let manualPaid = 0;
+      filteredPayments.forEach(p => {
+        if (p.type === 'outstanding') {
+          outstandingAdded += p.amount;
+
+          if (p.status === 'completed') {
+            outstandingPaid += p.amount;
+          }
+        }
+
+        if (p.type === 'manual') {
+          manualPaid += p.amount;
+        }
       });
-      setStats({ totalAmount: total, received, pending });
+      const balance = outstandingAdded - (outstandingPaid + manualPaid);
+
+      setStats({
+        totalAmount: outstandingAdded,
+        received: outstandingPaid + manualPaid,
+        pending: balance < 0 ? 0 : balance
+      });
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -77,12 +126,17 @@ const PaymentScreen = () => {
   };
 
   useEffect(() => {
-    fetchPayments();
-  }, [dateRange]);
+    fetchCAPayments();
+  }, [dateRange, useDateFilter]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchCAPayments();
+    }, [])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchPayments();
+    fetchCAPayments();
   };
 
   const formatDate = (date) =>
@@ -111,7 +165,7 @@ const PaymentScreen = () => {
   const renderPaymentItem = ({ item }) => {
     const isPaid = item.status === 'completed';
     const balance = isPaid ? 0 : item.amount - (item.paidAmount || 0);
-  
+
     const formattedDate = new Date(item.createdAt).toLocaleString('en-IN', {
       day: '2-digit',
       month: 'short',
@@ -119,7 +173,7 @@ const PaymentScreen = () => {
       hour: '2-digit',
       minute: '2-digit',
     });
-  
+
     return (
       <View style={[styles.paymentCard, isPaid ? styles.paidCard : styles.pendingCard]}>
         {/* Top Row: Date + Business Name */}
@@ -127,63 +181,131 @@ const PaymentScreen = () => {
           <Text style={styles.cardDate}>{formattedDate}</Text>
           {item.client?.name && <Text style={styles.cardClient}>{item.client.name}</Text>}
         </View>
-  
+
         {/* Amount Section */}
         <Text style={styles.amountLabel}>{isPaid ? 'Payment Received' : 'Balance Due'}</Text>
         <Text style={[styles.amount, isPaid ? styles.paidAmount : styles.balanceAmount]}>
           ₹{(isPaid ? item.amount : balance).toLocaleString()}
         </Text>
-  
+
         {/* Description */}
         {item.description && <Text style={styles.description}>{item.description}</Text>}
       </View>
     );
   };
-  
+
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Date Range */}
-      <View style={styles.rowContainer}>
-        <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker('from')}>
-          <Ionicons name="calendar" size={16} color="#4F46E5" />
-          <Text style={styles.dateText}>{formatDate(dateRange.from)}</Text>
-        </TouchableOpacity>
-        <Text style={styles.dateSeparator}>to</Text>
-        <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker('to')}>
-          <Ionicons name="calendar" size={16} color="#4F46E5" />
-          <Text style={styles.dateText}>{formatDate(dateRange.to)}</Text>
+      {/* Date Range Toggle */}
+      <View style={styles.filterToggleContainer}>
+        <TouchableOpacity
+          style={[styles.filterToggle, useDateFilter && styles.filterToggleActive]}
+          onPress={() => setUseDateFilter(!useDateFilter)}
+        >
+          <Ionicons
+            name={useDateFilter ? 'calendar' : 'calendar-outline'}
+            size={16}
+            color={useDateFilter ? '#4F46E5' : '#6B7280'}
+          />
+          <Text style={[styles.filterToggleText, useDateFilter && styles.filterToggleTextActive]}>
+            Filter by Date
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Sorting + Filter */}
-      <View style={styles.rowContainer}>
-        <View style={styles.pickerBox}>
-          <Picker
-            selectedValue={sortBy}
-            onValueChange={setSortBy}
-            style={styles.picker}
-            itemStyle={{ height: 120 }}
-          >
-            <Picker.Item label="Newest" value="newest" />
-            <Picker.Item label="Oldest" value="oldest" />
-            <Picker.Item label="Amount High" value="amount_high" />
-            <Picker.Item label="Amount Low" value="amount_low" />
-          </Picker>
+      {/* Date Range Picker (Conditional) */}
+      {useDateFilter && (
+        <View style={styles.rowContainer}>
+          <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker('from')}>
+            <Ionicons name="calendar" size={16} color="#4F46E5" />
+            <Text style={styles.dateText}>{formatDate(dateRange.from)}</Text>
+          </TouchableOpacity>
+          <Text style={styles.dateSeparator}>to</Text>
+          <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker('to')}>
+            <Ionicons name="calendar" size={16} color="#4F46E5" />
+            <Text style={styles.dateText}>{formatDate(dateRange.to)}</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.pickerBox}>
-          <Picker
-            selectedValue={filter}
-            onValueChange={setFilter}
-            style={styles.picker}
-            itemStyle={{ height: 120 }}
-          >
-            <Picker.Item label="All" value="all" />
-            <Picker.Item label="All Paid" value="completed" />
-            <Picker.Item label="Balance Due" value="pending" />
-          </Picker>
+      )}
+
+      {/* Enhanced Filter and Sort Section */}
+      <View style={styles.enhancedFiltersContainer}>
+        <Text style={styles.sectionTitle}>Filter & Sort</Text>
+
+        <View style={styles.filtersRow}>
+          {/* Sort By */}
+          <View style={styles.filterCard}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="funnel-outline" size={16} color="#4F46E5" />
+              <Text style={styles.filterTitle}>Sort By</Text>
+            </View>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={sortBy}
+                onValueChange={setSortBy}
+                style={styles.picker}
+                dropdownIconColor="#4F46E5"
+                mode="dropdown"
+              >
+                <Picker.Item
+                  label="Newest First"
+                  value="newest"
+                  style={styles.pickerItem}
+                />
+                <Picker.Item
+                  label="Oldest First"
+                  value="oldest"
+                  style={styles.pickerItem}
+                />
+                <Picker.Item
+                  label="Amount (High to Low)"
+                  value="amount_high"
+                  style={styles.pickerItem}
+                />
+                <Picker.Item
+                  label="Amount (Low to High)"
+                  value="amount_low"
+                  style={styles.pickerItem}
+                />
+              </Picker>
+            </View>
+          </View>
+
+          {/* Filter */}
+          <View style={styles.filterCard}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="filter-outline" size={16} color="#4F46E5" />
+              <Text style={styles.filterTitle}>Status</Text>
+            </View>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={filter}
+                onValueChange={setFilter}
+                style={styles.picker}
+                dropdownIconColor="#4F46E5"
+                mode="dropdown"
+              >
+                <Picker.Item
+                  label="All Payments"
+                  value="all"
+                  style={styles.pickerItem}
+                />
+                <Picker.Item
+                  label="Paid"
+                  value="completed"
+                  style={styles.pickerItem}
+                />
+                <Picker.Item
+                  label="Pending"
+                  value="pending"
+                  style={styles.pickerItem}
+                />
+              </Picker>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -209,7 +331,7 @@ const PaymentScreen = () => {
       ) : error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={fetchPayments} style={styles.retryButton}>
+          <TouchableOpacity onPress={fetchCAPayments} style={styles.retryButton}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -249,12 +371,80 @@ const PaymentScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
-  rowContainer: {
+  filterToggleContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  filterToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
+    padding: 8,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
+  filterToggleActive: {
+    backgroundColor: '#EEF2FF',
+  },
+  filterToggleText: {
+    marginLeft: 6,
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  filterToggleTextActive: {
+    color: '#4F46E5',
+  },
+  enhancedFiltersContainer: {
+    backgroundColor: '#ffffff',
+    padding: 18,
+    borderBottomWidth: 1,
+    borderTopWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 10,
+    borderRadius: 12,
+    marginHorizontal: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 14,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  filterCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  filterTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginLeft: 6,
+  },
+
   dateInput: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -268,17 +458,38 @@ const styles = StyleSheet.create({
   },
   dateText: { marginLeft: 6, color: '#111827' },
   dateSeparator: { marginHorizontal: 6, color: '#6B7280' },
-  pickerBox: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginHorizontal: 4,
-    height: 50,
-    justifyContent: 'center'
+  rowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 10,
+    gap: 10,
   },
-  picker: { width: '100%' },
+
+  pickerContainer: {
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+
+    height: 49,
+    justifyContent: 'center',
+  },
+  picker: {
+    height: 45,
+    color: '#111827',
+    fontSize: 14,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+  },
+  pickerItem: {
+    fontSize: 14,
+
+    color: 'white',
+  },
+
   statsContainer: { flexDirection: 'row', justifyContent: 'space-between', padding: 12 },
   statCard: { flex: 1, margin: 4, padding: 12, borderRadius: 8, alignItems: 'center' },
   statValue: { fontSize: 16, fontWeight: '700' },

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,8 +21,9 @@ const { width } = Dimensions.get('window');
 const ClientDetailsScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const { clientId } = route.params || {};
-  
+
   // State declarations
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,71 +54,82 @@ const ClientDetailsScreen = () => {
   }, []);
 
   // Fetch client details
-const fetchClientDetails = async () => {
-  if (!clientId) return;
-  setLoading(true);
-  try {
-    console.log('Fetching client with ID:', clientId);
-    
-    // First: fetch client with cache-busting
-    const timestamp = new Date().getTime();
-    const clientRes = await fetch(`${API_BASE_URL}/clients/${clientId}?_t=${timestamp}`, {
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
-    
-    if (clientRes.status === 404) {
-      throw new Error('Client not found');
-    }
-    
-    if (!clientRes.ok) {
-      throw new Error(`Failed to fetch client: ${clientRes.status} ${clientRes.statusText}`);
-    }
-    
-    const response = await clientRes.json();
-    console.log('Client API Response:', response);
-    
-    // Handle case where client is directly in response or nested under 'client' key
-    const clientData = response.client || response;
-    
-    if (!clientData) {
-      throw new Error('Client data is empty');
-    }
-
-    // Format client data to match expected structure
-    const formattedClient = {
-      ...clientData,
-      name: `${clientData.firstName || ''} ${clientData.lastName || ''}`.trim(),
-      businessName: clientData.businessName || 'N/A',
-      gstNumber: clientData.gstNumber || 'N/A',
-      panNumber: clientData.panNumber || 'N/A',
-      phoneNumber: clientData.phone || clientData.phoneNumber || 'N/A',
-      email: clientData.email || 'N/A',
-      gstType: clientData.gstType || 'N/A'
-    };
-
-    // Try to fetch payment history, but don't fail if it doesn't exist
-    let paymentData = { payments: [] };
+  const fetchClientDetails = async () => {
+    if (!clientId) return;
+    setLoading(true);
     try {
-      paymentData = await paymentService.getPaymentHistory(clientId, 5) || { payments: [] };
-      console.log('Payment history:', paymentData);
-    } catch (paymentError) {
-      console.warn('Could not fetch payment history:', paymentError);
-      // Continue without payment data
-    }
+      console.log('Fetching client with ID:', clientId);
 
-    setClient(formattedClient);
-    setRecentPayments(paymentData.payments || []);
-  } catch (error) {
-    console.error('Error in fetchClientDetails:', error);
-    Alert.alert("Error", error.message || "Failed to fetch client details.");
-    setClient(null);
-  } finally {
-    setLoading(false);
-  }
-};
+      // First: fetch client with cache-busting
+      const timestamp = new Date().getTime();
+      const clientRes = await fetch(`${API_BASE_URL}/clients/${clientId}?_t=${timestamp}`, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+
+      if (clientRes.status === 404) {
+        throw new Error('Client not found');
+      }
+
+      if (!clientRes.ok) {
+        throw new Error(`Failed to fetch client: ${clientRes.status} ${clientRes.statusText}`);
+      }
+
+      const response = await clientRes.json();
+      console.log('Client API Response:', response);
+
+      // Handle case where client is directly in response or nested under 'client' key
+      const clientData = response.client || response;
+
+      if (!clientData) {
+        throw new Error('Client data is empty');
+      }
+
+      // Log the raw client data for debugging
+      console.log('Raw client data:', clientData);
+
+      // Format client data to match expected structure
+      const formattedClient = {
+        ...clientData,  // Keep all original fields from the API
+        // Map phoneNumber to phone for backward compatibility
+        phone: clientData.phoneNumber || clientData.phone || 'N/A',
+        // Ensure we have a name field, either from name or firstName/lastName
+        name: clientData.name || `${clientData.firstName || ''} ${clientData.lastName || ''}`.trim(),
+        // Set default values for other fields if not present
+        // Use name as businessName since that's what the API provides
+        businessName: clientData.businessName || 'N/A',
+        gstNumber: clientData.gstNumber || 'N/A',
+        panNumber: clientData.panNumber || 'N/A',
+        email: clientData.email || 'N/A',
+        gstType: clientData.gstType || 'N/A',
+        address: clientData.address || 'N/A'
+      };
+
+      // Log the formatted client data for debugging
+      console.log('Formatted client data:', formattedClient);
+
+      // Try to fetch payment history, but don't fail if it doesn't exist
+      let paymentData = { payments: [] };
+      try {
+        paymentData = await paymentService.getPaymentHistory(clientId, 5) || { payments: [] };
+        console.log('Payment history:', paymentData);
+      } catch (paymentError) {
+        console.warn('Could not fetch payment history:', paymentError);
+        // Continue without payment data
+      }
+
+      setClient(formattedClient);
+      setRecentPayments(paymentData.payments || []);
+    } catch (error) {
+      console.error('Error in fetchClientDetails:', error);
+      Alert.alert("Error", error.message || "Failed to fetch client details.");
+      setClient(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
   // Fetch token on component mount
@@ -186,12 +198,12 @@ const fetchClientDetails = async () => {
 
         // Refresh client data
         await fetchClientDetails();
-        
+
         // Reset form
         setManualAmount('');
         setManualNote('');
         setShowManualPaymentModal(false);
-        
+
         Alert.alert('Success', 'Payment recorded successfully');
       } else {
         Alert.alert('Authentication Failed', 'You must authenticate to record a payment');
@@ -204,45 +216,6 @@ const fetchClientDetails = async () => {
     }
   };
 
-  // Handle file upload and fee payment
-  const handleFileUpload = async (filingData) => {
-    try {
-      setUploading(true);
-      
-      // 1. Save the filing record
-      // await filingService.saveFiling({
-      //   clientId,
-      //   ...filingData,
-      //   status: filingData.status || 'pending'
-      // });
-
-      // 2. If there's a fee, create a payment record
-      if (filingData.fee && filingData.fee > 0) {
-        await paymentService.createOutstandingPayment(
-          clientId,
-          filingData.fee,
-          `Filing fee for ${filingData.gstType} (${filingData.month}/${filingData.year})`,
-          'filing_fee'  // Add a type to identify this as a filing fee
-        );
-      }
-
-      // 3. Refresh client data to update the UI
-      await fetchClientDetails();
-      
-      // 4. Show success message and close modal
-      Alert.alert(
-        'Success', 
-        `Filing ${filingData.gstType} for ${filingData.month}/${filingData.year} has been saved${filingData.fee > 0 ? ' and fee has been added to outstanding balance' : ''}`
-      );
-      
-      setShowFileUploadModal(false);
-    } catch (error) {
-      console.error('Error saving filing:', error);
-      Alert.alert('Error', 'Failed to save filing: ' + (error.message || 'Unknown error'));
-    } finally {
-      setUploading(false);
-    }
-  };
 
   // Handle call
   const handleCall = () => {
@@ -328,7 +301,7 @@ const fetchClientDetails = async () => {
   // Render payment item
   const renderPaymentItem = ({ item }) => {
     const displayInfo = getPaymentTypeDisplay(item);
-    
+
     return (
       <View style={styles.paymentHistoryItem}>
         <View style={styles.paymentItemHeader}>
@@ -353,9 +326,29 @@ const fetchClientDetails = async () => {
 
   // Navigate to payment history
   const navigateToPaymentHistory = () => {
-    navigation.navigate('PaymentHistory', { 
-      clientId, 
-      clientName: client?.name || 'Client' 
+    navigation.navigate('PaymentHistory', {
+      clientId,
+      clientName: client?.name || 'Client'
+    });
+  };
+
+  // Navigate to edit client screen
+  const navigateToEditClient = () => {
+    if (!client) return;
+
+    navigation.navigate('EditClient', {
+      clientId: client._id,
+      clientData: {
+        firstName: client.firstName || '',
+        lastName: client.lastName || '',
+        email: client.email || '',
+        phone: client.phone || client.phoneNumber || '',
+        businessName: client.businessName || '',
+        gstNumber: client.gstNumber || '',
+        panNumber: client.panNumber || '',
+        gstType: client.gstType || 'Regular',
+        address: client.address || ''
+      }
     });
   };
 
@@ -397,10 +390,10 @@ const fetchClientDetails = async () => {
                 </View>
               </View>
               <View style={styles.clientInfo}>
-                <Text style={styles.clientName}>{client.name}</Text>
+                <Text style={styles.clientName}>{client.businessName || 'N/A'}</Text>
                 <View style={styles.clientMeta}>
-                  <Text style={styles.clientEmail}>{client.email}</Text>
-                  <Text style={styles.clientPhone}>• {client.phone}</Text>
+                  <Text style={styles.clientEmail}>{client.email || 'N/A'}</Text>
+                  <Text style={styles.clientPhone}>• {client.phone || client.phoneNumber || client.mobile || 'N/A'}</Text>
                 </View>
                 <View style={styles.paymentStatus}>
                   <View style={[
@@ -415,21 +408,22 @@ const fetchClientDetails = async () => {
               <TouchableOpacity style={styles.callButton} onPress={handleCall}>
                 <Ionicons name="call" size={24} color="#3498db" />
               </TouchableOpacity>
+           
             </View>
-            
+
             <View style={styles.contactInfo}>
               <View style={styles.contactRow}>
-                <Ionicons name="business" size={18} color="#7f8c8d" />
-                <Text style={styles.contactText}>{client.businessName || 'Not specified'}</Text>
+                <Ionicons name="person" size={18} color="#7f8c8d" />
+                <Text style={styles.contactText}>{client.name || 'N/A'}</Text>
               </View>
               <View style={styles.contactRow}>
                 <Ionicons name="location" size={18} color="#7f8c8d" />
-                <Text style={styles.contactText}>{client.address || 'Address not available'}</Text>
+                <Text style={styles.contactText}>{client.address || 'N/A'}</Text>
               </View>
               {client.gstNumber && (
                 <View style={styles.contactRow}>
                   <Ionicons name="document-text" size={18} color="#7f8c8d" />
-                  <Text style={styles.contactText}>GST: {client.gstNumber}</Text>
+                  <Text style={styles.contactText}>GST: {client.gstNumber || 'N/A'}</Text>
                 </View>
               )}
             </View>
@@ -442,18 +436,18 @@ const fetchClientDetails = async () => {
             <Text style={styles.sectionTitle}>Payment Summary</Text>
             <Text style={styles.lastPaymentText}>Last payment: {formatDate(client.lastPaymentDate) || 'N/A'}</Text>
           </View>
-          
+
           <View style={styles.summaryGrid}>
             <View style={[styles.summaryCard, styles.primaryCard]}>
               <Text style={styles.summaryLabel}>Total Added</Text>
               <Text style={styles.summaryAmount}>₹{client.totalAdded?.toLocaleString() || '0'}</Text>
             </View>
-            
+
             <View style={[styles.summaryCard, styles.successCard]}>
               <Text style={styles.summaryLabel}>Total Paid</Text>
               <Text style={styles.summaryAmount}>₹{client.totalPaid?.toLocaleString() || '0'}</Text>
             </View>
-            
+
             <View style={[styles.summaryCard, styles.warningCard]}>
               <Text style={styles.summaryLabel}>Balance</Text>
               <Text style={styles.summaryAmount}>₹{client.totalOutstanding?.toLocaleString() || '0'}</Text>
@@ -466,17 +460,17 @@ const fetchClientDetails = async () => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Payment Actions</Text>
           </View>
-          
+
           <View style={styles.actionButtonsContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.actionButton, styles.primaryButton]}
               onPress={() => setShowAddAmountModal(true)}
             >
               <Ionicons name="add-circle-outline" size={20} color="#fff" />
               <Text style={styles.actionButtonText}>Add Amount</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={[styles.actionButton, styles.recordButton]}
               onPress={handleMarkAsPaid}
             >
@@ -493,7 +487,7 @@ const fetchClientDetails = async () => {
               <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
           </View>
-          
+
           {recentPayments.length > 0 ? (
             <FlatList
               data={recentPayments}
@@ -509,7 +503,7 @@ const fetchClientDetails = async () => {
           )}
         </View>
 
-     
+
       </ScrollView>
 
       {/* Add Amount Modal */}
@@ -548,7 +542,11 @@ const fetchClientDetails = async () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f9fafb',
+  },
+  headerButton: {
+    marginRight: 16,
+    padding: 4,
   },
   loadingContainer: {
     flex: 1,

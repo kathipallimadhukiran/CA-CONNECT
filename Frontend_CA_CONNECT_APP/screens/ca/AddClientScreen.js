@@ -16,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
+import { useEffect } from 'react';
 import { API_BASE_URL } from '../../config';
 
 // GST validation function
@@ -41,6 +41,8 @@ const validateGST = (gst) => {
   return validStateCodes.includes(stateCode);
 };
 
+
+
 // PAN validation function
 const validatePAN = (pan) => {
   if (!pan) return false;
@@ -57,24 +59,52 @@ const validatePAN = (pan) => {
 const AddClientScreen = () => {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
+ 
+
   const [errors, setErrors] = useState({
     gstNumber: '',
     panNumber: ''
   });
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: '',
-    businessName: '',
-    gstNumber: '',
-    panNumber: '',
-    whatsappNumber: '',
-    gstType: 'Regular',
-    defaultFee: ''
-  });
+  firstName: '',
+  lastName: '',
+  phone: '',
+  email: '',
+  businessName: '',
+  caUserName: '',
+  gstNumber: '',
+  panNumber: '',
+  whatsappNumber: '',
+  gstType: 'Regular',
+  defaultFee: ''
+});
+
   
-  
+useEffect(() => {
+  const fetchEmail = async () => {
+    try {
+      const data = await AsyncStorage.getItem("userData");
+
+      if (data) {
+        const parsed = JSON.parse(data);
+
+        setFormData(prev => ({
+          ...prev,
+          caUserName: parsed.email   // ✅ correct key
+        }));
+
+      } else {
+        console.log("No userData found");
+      }
+
+    } catch (err) {
+      console.log("Error reading userData", err);
+    }
+  };
+
+  fetchEmail();
+}, []);
+
 
   const handleInputChange = (field, value) => {
     // Convert to uppercase for GST and PAN fields
@@ -203,7 +233,7 @@ const AddClientScreen = () => {
 
 const handleSubmit = async () => {
   if (!validateForm()) return;
-
+  console.log('Form data:', formData);
   setLoading(true);
   try {
     // Prepare the data to be sent
@@ -263,6 +293,7 @@ const handleSubmit = async () => {
             phone: '',
             email: '',
             businessName: '',
+            caUserName:'',
             gstNumber: '',
             panNumber: '',
             whatsappNumber: '',

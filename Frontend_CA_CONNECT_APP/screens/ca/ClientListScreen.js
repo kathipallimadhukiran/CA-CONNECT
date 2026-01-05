@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,11 @@ import {
   RefreshControl,
   SafeAreaView,
   ScrollView,
+  Alert,
+  Linking
 } from 'react-native';
+import { authService } from '../../services/auth';
+
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
@@ -23,13 +27,6 @@ const STATUS_ICONS = {
   overdue: { icon: 'alert-circle-outline', color: '#EF4444', label: 'Overdue' },
 };
 
-const SORT_OPTIONS = [
-  { id: 'name', label: 'Name (A-Z)', icon: 'text' },
-  { id: 'name-desc', label: 'Name (Z-A)', icon: 'text' },
-  { id: 'status', label: 'Status', icon: 'flag' },
-  { id: 'pending', label: 'Pending Files', icon: 'document' },
-  { id: 'outstanding', label: 'Outstanding Amount', icon: 'card' },
-];
 
 const FILTER_OPTIONS = [
   { id: 'all', label: 'All Clients', icon: 'people' },
@@ -48,35 +45,56 @@ const getStatus = (pendingFiles) => {
 
 const ClientListScreen = () => {
   const navigation = useNavigation();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{ marginLeft: 10, padding: 8 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#2563EB" />
+        </TouchableOpacity>
+      ),
+      title: 'Clients',
+      headerTitleStyle: {
+        fontWeight: 'bold',
+      },
+    });
+  }, [navigation]);
+
   const [clients, setClients] = useState([]);
   const [filteredClients, setFilteredClients] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showSortModal, setShowSortModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedSort, setSelectedSort] = useState('name');
   const [selectedFilter, setSelectedFilter] = useState('all');
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
+      const { email } = await authService.getStoredCredentials();
+
       const res = await axios.get(`${API_BASE_URL}/clients`, {
-        params: { 
-          page: 1, 
+        params: {
+          page: 1,
           limit: 50,
-          // Don't send empty search to backend
+          caUserName: email,   // 👈 IMPORTANT
           ...(search.trim() && { search: search.trim() })
         },
       });
-      setClients(res.data.clients || []);
+
+      console.log('Clients API Response:', JSON.stringify(res.data.clients, null, 2));
+      const clientsData = res.data.clients || [];
+      console.log('First client totalOutstanding:', clientsData[0]?.totalOutstanding, 'type:', typeof clientsData[0]?.totalOutstanding);
+      setClients(clientsData);
     } catch (e) {
       console.error("Error fetching clients:", e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
   }, [search]);
-
   useFocusEffect(
     useCallback(() => {
       fetchClients();
@@ -89,7 +107,7 @@ const ClientListScreen = () => {
     // Apply search filter (case-insensitive)
     if (search.trim()) {
       const searchTerm = search.trim().toLowerCase();
-      filtered = filtered.filter(client => 
+      filtered = filtered.filter(client =>
         (client.name?.toLowerCase().includes(searchTerm)) ||
         (client.businessType?.toLowerCase().includes(searchTerm)) ||
         (client.gstNumber?.toLowerCase().includes(searchTerm))
@@ -98,35 +116,32 @@ const ClientListScreen = () => {
 
     // Apply GST type filter
     if (selectedFilter !== 'all' && selectedFilter.startsWith('gst-')) {
-      const gstType = selectedFilter.replace('gst-', '');
-      filtered = filtered.filter(client => 
-        client.gstType?.toLowerCase() === gstType.toLowerCase()
-      );
+      const gstType = selectedFilter.replace('gst-', '').toLowerCase();
+
+      filtered = filtered.filter(client => {
+        const type = (client.gstType || '').toLowerCase();
+
+        if (gstType === 'regular') {
+          return type.includes('regular');
+        }
+
+        if (gstType === 'composite') {
+          return type.includes('composite') || type.includes('composition');
+        }
+
+        if (gstType === 'iff') {
+          return type.includes('iff');
+        }
+
+        return true;
+      });
     }
 
-    // Apply sorting
-    filtered.sort((a, b) => {
-      switch (selectedSort) {
-        case 'name':
-          return (a.name || '').localeCompare(b.name || '');
-        case 'name-desc':
-          return (b.name || '').localeCompare(a.name || '');
-        case 'status': {
-          const statusA = getStatus(a.pendingFiles || 0);
-          const statusB = getStatus(b.pendingFiles || 0);
-          return statusA.localeCompare(statusB);
-        }
-        case 'pending':
-          return (b.pendingFiles || 0) - (a.pendingFiles || 0);
-        case 'outstanding':
-          return (b.totalOutstanding || 0) - (a.totalOutstanding || 0);
-        default:
-          return 0;
-      }
-    });
+
+
 
     setFilteredClients(filtered);
-  }, [clients, selectedFilter, selectedSort, search]);
+  }, [clients, selectedFilter, search]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -135,11 +150,12 @@ const ClientListScreen = () => {
   };
 
   const renderClient = ({ item }) => {
+    console.log('Rendering client:', item.name, 'totalOutstanding:', item.totalOutstanding, 'type:', typeof item.totalOutstanding);
     const status = getStatus(item.pendingFiles);
     const { icon, color, label } = STATUS_ICONS[status];
 
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.card}
         onPress={() => navigation.navigate('ClientDetails', { clientId: item._id })}
       >
@@ -150,19 +166,55 @@ const ClientListScreen = () => {
             <Text style={styles.businessType}>{item.businessType}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Ionicons name={icon} size={20} color={color} />
-            <Text style={[styles.statusText, { color }]}>{label}</Text>
+
+
+
+                {/* Call Button */}
+            <TouchableOpacity
+              onPress={() => {
+                const phoneNumber = item.phoneNumber || item.phone;
+                if (phoneNumber) {
+                  Linking.openURL(`tel:${phoneNumber}`);
+                } else {
+                  Alert.alert('Error', 'Phone number not available');
+                }
+              }}
+              style={styles.callButton}
+            >
+              <Ionicons name="call-outline" size={16} color="#2563EB" />
+              <Text style={styles.callButtonText}>Call</Text>
+            </TouchableOpacity>
+            {/* Payment Status */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: 4
+            }}>
+              <Ionicons
+                name={item.totalOutstanding && Number(item.totalOutstanding) > 0 ? "alert-circle" : "checkmark-circle"}
+                size={14}
+                color={item.totalOutstanding && Number(item.totalOutstanding) > 0 ? "#DC2626" : "#10B981"}
+              />
+              <Text style={[
+                styles.statusText,
+                {
+                  color: item.totalOutstanding && Number(item.totalOutstanding) > 0 ? "#DC2626" : "#10B981",
+                  marginLeft: 4
+                }
+              ]}>
+                {item.totalOutstanding && Number(item.totalOutstanding) > 0 ?
+                  `₹${Number(item.totalOutstanding).toLocaleString('en-IN')} Pending` :
+                  'All Paid'}
+              </Text>
+            </View>
+
+        
           </View>
         </View>
         <View style={{ flexDirection: 'row', marginTop: 8 }}>
           {item.gstType && (
             <View style={[styles.gstTypeBadge, { backgroundColor: '#2563EB' }]}>
               <Text style={styles.gstTypeText}>{item.gstType.toUpperCase()}</Text>
-            </View>
-          )}
-          {item.totalOutstanding > 0 && (
-            <View style={[styles.gstTypeBadge, { backgroundColor: '#EF4444' }]}>
-              <Text style={styles.gstTypeText}>₹{item.totalOutstanding}</Text>
             </View>
           )}
         </View>
@@ -183,9 +235,6 @@ const ClientListScreen = () => {
         <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterBtn}>
           <Ionicons name="filter-outline" size={22} color="#2563EB" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setShowSortModal(true)} style={styles.filterBtn}>
-          <MaterialIcons name="sort" size={22} color="#2563EB" />
-        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -195,7 +244,7 @@ const ClientListScreen = () => {
           <Ionicons name="people-outline" size={80} color="#9CA3AF" style={styles.emptyIcon} />
           <Text style={styles.emptyTitle}>No Clients Found</Text>
           <Text style={styles.emptySubtitle}>You don't have any clients yet. Add your first client to get started.</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.addButton}
             onPress={() => navigation.navigate('AddClient')}
           >
@@ -213,40 +262,6 @@ const ClientListScreen = () => {
         />
       )}
 
-      {/* Sort Modal */}
-      <Modal visible={showSortModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Sort By</Text>
-            {SORT_OPTIONS.map(option => (
-              <TouchableOpacity
-                key={option.id}
-                style={[
-                  styles.modalOption,
-                  selectedSort === option.id && styles.modalOptionSelected,
-                ]}
-                onPress={() => {
-                  setSelectedSort(option.id);
-                  setShowSortModal(false);
-                }}
-              >
-                <MaterialIcons name={option.icon} size={20} color="#2563EB" />
-                <Text
-                  style={[
-                    styles.modalOptionText,
-                    selectedSort === option.id && styles.modalOptionTextSelected,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity onPress={() => setShowSortModal(false)} style={styles.modalCancel}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* Filter Modal */}
       <Modal visible={showFilterModal} transparent animationType="fade">
@@ -282,9 +297,9 @@ const ClientListScreen = () => {
           </View>
         </View>
       </Modal>
-      
-      <TouchableOpacity 
-        style={styles.fab} 
+
+      <TouchableOpacity
+        style={styles.fab}
         onPress={() => navigation.navigate('Home', { screen: 'AddClient' })}
       >
         <Ionicons name="add" size={30} color="white" />
@@ -294,8 +309,8 @@ const ClientListScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
+  container: {
+    flex: 1,
     backgroundColor: '#F9FAFB',
     position: 'relative',
   },
@@ -343,7 +358,21 @@ const styles = StyleSheet.create({
   clientName: { fontSize: 18, fontWeight: 'bold', color: '#1F2937' },
   clientAddress: { fontSize: 14, color: '#6B7280', marginTop: 2 },
   businessType: { fontSize: 12, color: '#10B981', marginTop: 2, fontWeight: '500' },
-  statusText: { fontSize: 13, fontWeight: '500', marginTop: 2 },
+  statusText: {
+    fontSize: 12,
+  },
+  balanceText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#DC2626',
+    marginTop: 4,
+  },
+  clearedText: {
+    fontSize: 12,
+    color: '#10B981',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
@@ -354,6 +383,34 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     opacity: 0.6,
   },
+callButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  borderRadius: 20,
+  backgroundColor: '#E6F9EC',    // soft light green
+  borderWidth: 1,
+  borderColor: '#16A34A',        // primary green
+  marginTop: 6,
+
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 3,
+  elevation: 2,
+  marginVertical: 6,
+
+},
+
+
+callButtonText: {
+  marginLeft: 6,
+  color: '#2563EB',
+  fontSize: 13,
+  fontWeight: '600',
+}
+,
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',

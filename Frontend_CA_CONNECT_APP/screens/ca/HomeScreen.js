@@ -32,7 +32,6 @@ const HomeScreen = () => {
     monthlyEarnings: 0,
     totalClients: 0,
     pendingFiles: 0,
-    completedTasks: 0,
     overduePayments: 0
   });
   const [refreshing, setRefreshing] = useState(false);
@@ -49,7 +48,6 @@ const HomeScreen = () => {
         monthlyEarnings: 0,
         totalClients: 0,
         pendingFiles: 0,
-        completedTasks: 0,
         overduePayments: 0
       });
 
@@ -152,62 +150,69 @@ const HomeScreen = () => {
     // Return cached data if it's still fresh
     const now = Date.now();
     if (!forceRefresh && cache.clients && (now - cache.lastFetched < cache.CACHE_DURATION)) {
-      console.log('Using cached clients data');
+
       setClients(cache.clients);
       updateStats(cache.clients);
       setClientsLoading(false);
       return;
     }
-    
+
     setClientsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/clients?page=1&limit=50`, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
+      const { email } = await authService.getStoredCredentials();
+
+      const res = await fetch(
+        `${API_BASE_URL}/clients?page=1&limit=50&caUserName=${email}`,
+        {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
         }
-      });
-      
+      );
+
+
       if (!res.ok) {
         const errorText = await res.text();
         throw new Error(errorText || 'Failed to load clients');
       }
-      
+
       const data = await res.json();
       const clientList = data.clients || [];
-      
+
       // Update cache
       cache.clients = clientList;
       cache.lastFetched = Date.now();
-      
+
       setClients(clientList);
-  
+
       // Calculate stats
       const totalClients = clientList.length;
       const totalPendingFiles = clientList.reduce((sum, client) => sum + (client.pendingFiles || 0), 0);
       const totalOutstanding = clientList.reduce((sum, client) => sum + (client.totalOutstanding || 0), 0);
       const totalPaid = clientList.reduce((sum, client) => sum + (client.totalPaid || 0), 0);
-      const overdueClients = clientList.filter(client => (client.pendingFiles || 0) > 3).length;
-  
+      const overdueClients = clientList.filter(
+        client => Number(client.totalOutstanding) > 0
+      ).length;
+
       const monthlyEarnings = totalOutstanding * 0.3;
-  
+
       setStats({
         totalEarnings: totalOutstanding + totalPaid,
         monthlyEarnings,
         totalClients,
         pendingFiles: totalPendingFiles,
-        completedTasks: Math.floor(totalClients * 1.8),
         overduePayments: overdueClients
       });
     } catch (error) {
       console.error('Error loading clients:', error);
-      
+
       // Only show alert if not a rate limit error or max retries reached
-      if (error.message !== 'Too many requests. Please try again later.' || 
-          error.message.includes('Failed to load clients')) {
+      if (error.message !== 'Too many requests. Please try again later.' ||
+        error.message.includes('Failed to load clients')) {
         Alert.alert('Error', error.message || 'Failed to load clients');
       }
-      
+
       // Reset clients only on first try to prevent UI flickering during retries
       if (retryCount === 0) {
         setClients([]);
@@ -216,30 +221,53 @@ const HomeScreen = () => {
       setClientsLoading(false);
     }
   };
-  
-  
+
+
 
 
   // Update stats without reloading all clients
   const updateStats = (clientList) => {
     if (!clientList || clientList.length === 0) return;
-    
-    const totalClients = clientList.length;
-    const totalPendingFiles = clientList.reduce((sum, client) => sum + (client.pendingFiles || 0), 0);
-    const totalOutstanding = clientList.reduce((sum, client) => sum + (client.totalOutstanding || 0), 0);
-    const totalPaid = clientList.reduce((sum, client) => sum + (client.totalPaid || 0), 0);
-    const overdueClients = clientList.filter(client => (client.pendingFiles || 0) > 3).length;
-    const monthlyEarnings = totalOutstanding * 0.3;
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const monthlyClients = clientList.filter(c => {
+      const created = new Date(c?.createdAt || Date.now());
+      return created.getMonth() === currentMonth && created.getFullYear() === currentYear;
+    });
+
+    const totalClients = monthlyClients.length;
+
+    const totalPendingFiles = monthlyClients.reduce(
+      (sum, c) => sum + (c.pendingFiles || 0), 0
+    );
+
+    const totalOutstanding = monthlyClients.reduce(
+      (sum, c) => sum + (c.totalOutstanding || 0), 0
+    );
+
+    const totalPaid = monthlyClients.reduce(
+      (sum, c) => sum + (c.totalPaid || 0), 0
+    );
+
+    // 🔥 Overdue Based on ALL CLIENTS
+    const overdueClients = clientList.filter(
+      c => (c.totalOutstanding || 0) > 0
+    ).length;
+
+    const monthlyEarnings = totalOutstanding + totalPaid;
 
     setStats({
-      totalEarnings: totalOutstanding + totalPaid,
+      totalEarnings: monthlyEarnings,
       monthlyEarnings,
       totalClients,
       pendingFiles: totalPendingFiles,
-      completedTasks: Math.floor(totalClients * 1.8),
       overduePayments: overdueClients
     });
   };
+
 
   // Force refresh when pulling down
   const onRefresh = async () => {
@@ -273,16 +301,44 @@ const HomeScreen = () => {
   };
 
   // Graph data: monthly earnings
-  const chartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [
-      {
-        data: [20000, 40000, 25000, 80000, 99000, 43000],
-        color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
-        strokeWidth: 2
-      }
-    ]
+  // Build dynamic monthly earnings from clients outstanding + paid
+  const buildMonthlyChart = () => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    if (!clients || clients.length === 0) {
+      return {
+        labels: monthNames,
+        datasets: [{ data: new Array(12).fill(0) }]
+      };
+    }
+
+    const monthlyTotals = new Array(12).fill(0);
+
+    clients.forEach(c => {
+      const out = Number(c?.totalOutstanding) || 0;
+      const paid = Number(c?.totalPaid) || 0;
+      const created = new Date(c?.createdAt || Date.now()).getMonth();
+      monthlyTotals[created] += (out + paid);
+    });
+
+    // Prevent Infinity issue — chart kit bug when all values are 0
+    const hasAnyValue = monthlyTotals.some(v => v > 0);
+    const safeData = hasAnyValue ? monthlyTotals : new Array(12).fill(0);
+
+    return {
+      labels: monthNames,
+      datasets: [
+        {
+          data: safeData,
+          color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
+          strokeWidth: 2
+        }
+      ]
+    };
   };
+
+
+  const chartData = buildMonthlyChart();
 
   // Quick Actions with semantic colors/icons
   const quickActions = [
@@ -326,89 +382,89 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
         {/* Horizontal Client List */}
-       {/* Horizontal Client List */}
-<View style={styles.clientListSection}>
-  <Text style={styles.sectionTitle}>Clients</Text>
+        {/* Horizontal Client List */}
+        <View style={styles.clientListSection}>
+          <Text style={styles.sectionTitle}>Clients</Text>
 
-  {clientsLoading ? (
-    <View style={{ paddingVertical: 16 }}>
-      <Text style={styles.clientListLoading}>Loading clients...</Text>
-    </View>
-  ) : clients.length > 0 ? (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingVertical: 8 }}
-    >
-      {clients.map(client => (
-        <TouchableOpacity
-          key={client._id}
-          style={styles.clientCard}
-          onPress={() =>
-            navigation.navigate('ClientDetails', {
-              clientId: client._id,
-              clientName: client.name
-            })
-          }
-          activeOpacity={0.85}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons
-              name="person-circle"
-              size={36}
-              color="#2563EB"
-              style={{ marginRight: 8 }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.clientCardName}>{client.name}</Text>
-              <Text style={styles.clientCardAddress}>{client.address}</Text>
+          {clientsLoading ? (
+            <View style={{ paddingVertical: 16 }}>
+              <Text style={styles.clientListLoading}>Loading clients...</Text>
             </View>
-            <TouchableOpacity
-              style={styles.clientCardCallBtn}
-              onPress={e => {
-                e.stopPropagation();
-                if (client.phoneNumber) {
-                  Linking.openURL(`tel:${client.phoneNumber}`);
-                }
-              }}
+          ) : clients.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 8 }}
             >
-              <Ionicons name="call-outline" size={20} color="#2563EB" />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
-  ) : (
-    <View style={styles.emptyClientsContainer}>
-      <Text style={styles.emptyClientsTitle}>No Clients Yet</Text>
-      <Text style={styles.emptyClientsSubtitle}>
-        Start by adding your first client
-      </Text>
-      <TouchableOpacity
-        style={styles.emptyAddButton}
-        onPress={() => navigation.navigate('AddClient')}
-        activeOpacity={0.85}
-      >
-        <Ionicons
-          name="person-add"
-          size={18}
-          color="white"
-          style={{ marginRight: 6 }}
-        />
-        <Text style={styles.emptyAddButtonText}>Add Client</Text>
-      </TouchableOpacity>
-    </View>
-  )}
-</View>
+              {clients.map(client => (
+                <TouchableOpacity
+                  key={client._id}
+                  style={styles.clientCard}
+                  onPress={() =>
+                    navigation.navigate('ClientDetails', {
+                      clientId: client._id,
+                      clientName: client.name
+                    })
+                  }
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons
+                      name="person-circle"
+                      size={36}
+                      color="#2563EB"
+                      style={{ marginRight: 8 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.clientCardName}>{client.name}</Text>
+                      <Text style={styles.clientCardAddress}>{client.address}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.clientCardCallBtn}
+                      onPress={e => {
+                        e.stopPropagation();
+                        if (client.phoneNumber) {
+                          Linking.openURL(`tel:${client.phoneNumber}`);
+                        }
+                      }}
+                    >
+                      <Ionicons name="call-outline" size={20} color="#2563EB" />
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.emptyClientsContainer}>
+              <Text style={styles.emptyClientsTitle}>No Clients Yet</Text>
+              <Text style={styles.emptyClientsSubtitle}>
+                Start by adding your first client
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyAddButton}
+                onPress={() => navigation.navigate('AddClient')}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="person-add"
+                  size={18}
+                  color="white"
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={styles.emptyAddButtonText}>Add Client</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
 
         {/* Earnings Chart */}
         <View style={styles.chartContainer}>
           <Text style={styles.sectionTitle}>Earnings per Month</Text>
-          <Text style={styles.earningsAmount}>₹
-            {/* {stats.totalEarnings.toLocaleString()} */}
-            465500
-            </Text>
+          <Text style={styles.earningsAmount}>
+            ₹{stats.totalEarnings?.toLocaleString() || 0}
+          </Text>
+
           <LineChart
             data={chartData}
             width={screenWidth - 40}
@@ -466,11 +522,7 @@ const HomeScreen = () => {
               <Text style={styles.statNumber}>{stats.pendingFiles}</Text>
               <Text style={styles.statLabel}>Pending Files</Text>
             </View>
-            <View style={styles.statCard}>
-              <Ionicons name="checkmark-circle" size={22} color="#10B981" style={styles.statIcon} />
-              <Text style={styles.statNumber}>{stats.completedTasks}</Text>
-              <Text style={styles.statLabel}>Completed Tasks</Text>
-            </View>
+
             <View style={styles.statCard}>
               <Ionicons name="alert-circle" size={22} color="#EF4444" style={styles.statIcon} />
               <Text style={styles.statNumber}>{stats.overduePayments}</Text>
@@ -537,7 +589,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 8
-  },emptyClientsContainer: {
+  }, emptyClientsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 24,
@@ -569,7 +621,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  
+
   earningsAmount: {
     fontSize: 24,
     fontWeight: 'bold',

@@ -128,7 +128,6 @@ export const authService = {
   async getCurrentUser() {
     try {
       const userData = await AsyncStorage.getItem('userData');
-      console.log('AuthService - Retrieved user data:', userData ? 'exists' : 'null');
       return userData ? JSON.parse(userData) : null;
     } catch (error) {
       console.error('AuthService - Get current user error:', error);
@@ -140,7 +139,6 @@ export const authService = {
     try {
       const email = await AsyncStorage.getItem('userEmail');
       const password = await secureStorage.getItem('userPassword');
-      console.log('AuthService - Retrieved stored credentials:', { email, password: password ? '***' : null });
       return { email, password };
     } catch (error) {
       console.error('AuthService - Get stored credentials error:', error);

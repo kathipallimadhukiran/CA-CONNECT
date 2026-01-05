@@ -107,9 +107,7 @@ const simpleEncrypt = (text) => {
 
 const simpleDecrypt = (encryptedText) => {
   try {
-    console.log('Decrypting text of length:', encryptedText ? encryptedText.length : 0);
     const decrypted = simpleBase64Decode(encryptedText);
-    console.log('Decryption successful, result length:', decrypted ? decrypted.length : 0);
     return decrypted;
   } catch (error) {
     console.error('Decryption failed:', error);
@@ -142,14 +140,11 @@ export const secureStorage = {
   // Retrieve sensitive data with decryption
   async getItem(key) {
     try {
-      console.log('SecureStorage - getItem called with key:', key);
       const value = await AsyncStorage.getItem(key);
-      console.log('SecureStorage - Retrieved raw value:', value ? 'exists' : 'null');
       
       if (key === 'userPassword' && value) {
         // Decrypt password after retrieving
         const decryptedValue = simpleDecrypt(value);
-        console.log('SecureStorage - Password decrypted successfully');
         return decryptedValue;
       }
       return value;

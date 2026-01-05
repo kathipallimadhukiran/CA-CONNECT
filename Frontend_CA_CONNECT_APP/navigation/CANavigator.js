@@ -1,14 +1,14 @@
 // Return Stack Navigator
 const ReturnStack = () => (
-  <Stack.Navigator 
+  <Stack.Navigator
     screenOptions={{
       ...commonHeaderOptions,
       headerShown: true
     }}
   >
-    <Stack.Screen 
-      name="Returnfilling" 
-      component={Returnfilling} 
+    <Stack.Screen
+      name="Returnfilling"
+      component={Returnfilling}
       options={{
         headerTitle: 'Return Filling',
       }}
@@ -27,6 +27,7 @@ import HomeScreen from '../screens/ca/HomeScreen';
 import AddClientScreen from '../screens/ca/AddClientScreen';
 import ClientListScreen from '../screens/ca/ClientListScreen.js';
 import ClientDetailsScreen from '../screens/ca/ClientDetailsScreen';
+import EditClientScreen from '../screens/ca/EditClientScreen';
 import PaymentScreen from '../screens/ca/PaymentScreen';
 import PaymentHistoryScreen from '../screens/ca/PaymentHistoryScreen';
 import TaskScreen from '../screens/ca/TaskScreen';
@@ -52,9 +53,9 @@ const commonHeaderOptions = {
   },
   headerBackTitleVisible: false,
   headerLeft: ({ onPress }) => (
-    <TouchableOpacity 
-      onPress={onPress} 
-      style={{ 
+    <TouchableOpacity
+      onPress={onPress}
+      style={{
         marginLeft: 16,
         padding: 4,
         borderRadius: 20,
@@ -67,22 +68,22 @@ const commonHeaderOptions = {
 };
 
 const HomeStack = () => (
-  <Stack.Navigator 
+  <Stack.Navigator
     screenOptions={{
       ...commonHeaderOptions,
       headerShown: false,
     }}
     initialRouteName="HomeMain"
   >
-    <Stack.Screen 
-      name="HomeMain" 
+    <Stack.Screen
+      name="HomeMain"
       component={HomeScreen}
       options={{
         headerShown: false,
       }}
     />
-    <Stack.Screen 
-      name="Returnfilling" 
+    <Stack.Screen
+      name="Returnfilling"
       component={Returnfilling}
       options={{
         headerShown: true,
@@ -93,8 +94,8 @@ const HomeStack = () => (
           shadowOpacity: 0,
         },
         headerLeft: ({ onPress }) => (
-          <TouchableOpacity 
-            onPress={onPress} 
+          <TouchableOpacity
+            onPress={onPress}
             style={{ marginLeft: 16 }}
           >
             <Ionicons name="arrow-back" size={24} color="#2563EB" />
@@ -102,8 +103,8 @@ const HomeStack = () => (
         ),
       }}
     />
-    <Stack.Screen 
-      name="AddClient" 
+    <Stack.Screen
+      name="AddClient"
       component={AddClientScreen}
       options={{
         headerShown: false
@@ -139,62 +140,103 @@ const HomeStack = () => (
 );
 
 // Client Stack Navigator
-const ClientStack = () => (
-  <Stack.Navigator 
-    screenOptions={{ 
-      ...commonHeaderOptions,
-      headerShown: true,
-      headerTitle: 'Clients' 
-    }}
-  >
-    <Stack.Screen name="ClientListMain" component={ClientListScreen} />
-    <Stack.Screen
-      name="ClientDetails"
-      component={ClientDetailsScreen}
-      options={({ navigation, route }) => ({
+const ClientStack = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        ...commonHeaderOptions,
         headerShown: true,
-        headerTitle: route.params?.clientName || 'Client Details',
-        headerLeft: () => (
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
-            <Ionicons name="arrow-back" size={24} color="#2563EB" />
-          </TouchableOpacity>
-        ),
-      })}
-    />
-    <Stack.Screen
-      name="PaymentHistory"
-      component={PaymentHistoryScreen}
-      options={({ navigation, route }) => ({
-        headerShown: true,
-        headerTitle: `${route.params?.clientName || 'Client'} - Payments`,
-        headerLeft: () => (
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
-            <Ionicons name="arrow-back" size={24} color="#2563EB" />
-          </TouchableOpacity>
-        ),
-      })}
-    />
-  </Stack.Navigator>
-);
+        headerTitle: 'Clients'
+      }}
+    >
+      <Stack.Screen
+        name="ClientList"
+        component={ClientListScreen}
+        options={{
+          headerShown: true,
+          title: 'Clients',
+          headerLeft: ({ onPress }) => (
+            <TouchableOpacity
+              onPress={onPress}
+              style={{ marginLeft: 10 }}
+            >
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <Stack.Screen
+        name="ClientDetails"
+        component={ClientDetailsScreen}
+        options={({ navigation, route }) => ({
+          headerShown: true,
+          headerTitle: route.params?.clientName || 'Client Details',
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('EditClient', {
+                clientId: route.params?.clientId,
+                clientName: route.params?.clientName
+              })}
+              style={{ marginRight: 16 }}
+            >
+              <Ionicons name="pencil" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="EditClient"
+        component={EditClientScreen}
+        options={({ navigation }) => ({
+          headerShown: true,
+          headerTitle: 'Edit Client',
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="PaymentHistory"
+        component={PaymentHistoryScreen}
+        options={({ navigation, route }) => ({
+          headerShown: true,
+          headerTitle: `${route.params?.clientName || 'Client'} - Payments`,
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+    </Stack.Navigator>
+  );
+};
 
 // Payment Stack Navigator
 const PaymentStack = () => (
-  <Stack.Navigator 
+  <Stack.Navigator
     screenOptions={{
       ...commonHeaderOptions,
       headerShown: true
     }}
   >
-    <Stack.Screen 
-      name="PaymentMain" 
-      component={PaymentScreen} 
+    <Stack.Screen
+      name="PaymentMain"
+      component={PaymentScreen}
       options={{
         headerTitle: 'Payments',
       }}
     />
-    <Stack.Screen 
-      name="PaymentHistory" 
-      component={PaymentHistoryScreen} 
+    <Stack.Screen
+      name="PaymentHistory"
+      component={PaymentHistoryScreen}
       options={{
         headerTitle: 'Payment History',
       }}
@@ -205,15 +247,15 @@ const PaymentStack = () => (
 
 // Call Stack Navigator
 const CallStack = () => (
-  <Stack.Navigator 
+  <Stack.Navigator
     screenOptions={{
       ...commonHeaderOptions,
       headerShown: true
     }}
   >
-    <Stack.Screen 
-      name="CallMain" 
-      component={CallScreen} 
+    <Stack.Screen
+      name="CallMain"
+      component={CallScreen}
       options={{
         headerTitle: 'Calls',
       }}
@@ -248,15 +290,15 @@ const CallStack = () => (
 
 // Profile Stack Navigator
 const ProfileStack = () => (
-  <Stack.Navigator 
+  <Stack.Navigator
     screenOptions={{
       ...commonHeaderOptions,
       headerShown: true
     }}
   >
-    <Stack.Screen 
-      name="ProfileMain" 
-      component={ProfileScreen} 
+    <Stack.Screen
+      name="ProfileMain"
+      component={ProfileScreen}
       options={{
         headerTitle: 'My Profile',
       }}
@@ -319,8 +361,8 @@ const CANavigator = () => {
         headerShown: false,
       })}
     >
-      <Tab.Screen 
-        name="Home" 
+      <Tab.Screen
+        name="Home"
         component={HomeStack}
         options={{ tabBarLabel: 'Dashboard' }}
         listeners={({ navigation }) => ({
@@ -330,27 +372,27 @@ const CANavigator = () => {
           },
         })}
       />
-      
-      <Tab.Screen 
-        name="Clients" 
+
+      <Tab.Screen
+        name="Clients"
         component={ClientStack}
         options={{ tabBarLabel: 'Clients', headerShown: false }}
       />
-      <Tab.Screen 
-        name="Payments" 
+      <Tab.Screen
+        name="Payments"
         component={PaymentStack}
         options={{ tabBarLabel: 'Payments' }}
       />
-  
+
       {/* <Tab.Screen 
         name="Tasks" 
         component={TaskStack}
         options={{ tabBarLabel: 'Tasks' }}
       /> */}
-      <Tab.Screen 
-        name="Return" 
+      <Tab.Screen
+        name="Return"
         component={ReturnStack}
-        options={{ 
+        options={{
           tabBarLabel: 'Return filling',
           headerShown: false
         }}

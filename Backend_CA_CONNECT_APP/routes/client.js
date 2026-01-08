@@ -9,20 +9,20 @@ const Task = require('../models/Task');
 // @desc    Add a new client (no auth required)
 // @access  Public
 router.post('/add', async (req, res) => {
-  const {
-    email,
-    firstName,
-    lastName,
-    phone,
-    businessName,
-    caUserName,
-    CaUserName,
-    gstNumber,
-    panNumber,
-    whatsappNumber,
-    gstType,
-    defaultFee = 0
-  } = req.body;
+ const {
+  email,
+  firstName,
+  lastName,
+  phone,
+  businessName,
+  caUserName,
+  gstNumber,
+  panNumber,
+  whatsappNumber,
+  gstType,
+  frequency,
+  defaultFee
+} = req.body;
 
   console.log("Received client data:", req.body);
   if (!email || !firstName || !lastName || !phone || !businessName) {
@@ -30,19 +30,21 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-    const newClient = new Client({
-      email,
-      firstName,
-      lastName,
-      phone,
-      businessName,
-      gstNumber,
-      caUserName: caUserName || CaUserName,   // 👈 IMPORTANT
-      panNumber,
-      whatsappNumber,
-      gstType,
-      defaultFee: Number(defaultFee) || 0
-    });
+  const newClient = new Client({
+  email,
+  firstName,
+  lastName,
+  phone,
+  businessName,
+  gstNumber,
+  caUserName,
+  panNumber,
+  whatsappNumber,
+  gstType,
+  frequency: gstType === 'IFF' ? frequency : '1',
+  defaultFee: Number(defaultFee) || 0
+});
+
 
 
     const savedClient = await newClient.save();

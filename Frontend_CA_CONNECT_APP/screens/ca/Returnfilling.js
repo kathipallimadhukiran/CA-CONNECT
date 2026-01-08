@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   View,
   Text,
@@ -20,6 +21,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
 import { API_BASE_URL } from '../../config';
 import { authService } from '../../services/auth';
+import { Picker } from '@react-native-picker/picker';
+
 
 // Response interceptor
 axios.interceptors.response.use(
@@ -29,59 +32,99 @@ axios.interceptors.response.use(
 
 const { width, height } = Dimensions.get('window');
 
-// Define styles
+const getCurrentFY = () => {
+  const today = new Date();
+  return today.getMonth() + 1 < 4
+    ? today.getFullYear() - 1
+    : today.getFullYear();
+};
 
-const getAllMonths = () => {
-  const months = [];
-  const date = new Date();
-  const currentMonth = date.getMonth(); // 0 = Jan
-  const currentYear = date.getFullYear();
+const getMonthsForFY = (fy) => {
   const monthNames = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
-    "Aug", "Sep", "Oct", "Nov", "Dec"
+    'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+    'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'
   ];
 
-  // Get 6 months before and 6 months after current month
-  for (let i = -6; i <= 6; i++) {
-    const tempDate = new Date(currentYear, currentMonth + i, 1);
-    const month = tempDate.getMonth();
-    const year = tempDate.getFullYear();
-    const monthName = monthNames[month];
-    const isCurrent = month === currentMonth && year === currentYear;
+  return monthNames.map((name, index) => {
+    const monthNumber = index < 9 ? index + 4 : index - 8; // Apr=4 ... Mar=3
+    const year = index < 9 ? fy : fy + 1; // First 9 months (Apr-Dec) are in the current FY, next 3 (Jan-Mar) in next year
+    const displayYear = monthNumber <= 3 ? fy + 1 : fy; // For display purposes
 
-    months.push({
-      key: `${monthName}-${year}`,
-      monthName: monthName,
-      month: month + 1, // 1-12
+    const today = new Date();
+    const isCurrent =
+      fy === getCurrentFY() &&
+      today.getFullYear() === year &&
+      today.getMonth() + 1 === monthNumber;
+
+    return {
+      key: `${name}-${fy}-${index}`,
+      monthName: name,
+      month: monthNumber,
       year: year,
-      displayName: monthName,
-      fullYear: year,
-      isCurrent: isCurrent,
-      date: tempDate
-    });
-  }
-
-  return months;
-};
-// Reorder months so current month stays after previous ones
-const reorderMonths = () => {
-  const allMonths = getAllMonths();
-  const currentIndex = allMonths.findIndex((m) => m.isCurrent);
-
-  const previous = allMonths.slice(0, currentIndex);
-  const current = allMonths[currentIndex];
-  const future = allMonths.slice(currentIndex + 1);
-
-  return [...previous, current, ...future];
+      displayName: name,
+      fullYear: displayYear, // This is what's shown in the header
+      isCurrent,
+    };
+  });
 };
 
-const months = reorderMonths();
 
 
 const STATUS_OPTIONS = [
   { id: 'filed', label: 'File', color: '#10B981', icon: 'checkmark-circle' },
   { id: 'not_filed', label: 'Not File', color: '#EF4444', icon: 'close-circle' }
 ];
+const formatGstTypeLabel = (client) => {
+  if (client.gstType === 'composition') {
+    return 'Composition (Quarterly)';
+  }
+
+  if (client.gstType === 'iff') {
+    return client.frequency === '3'
+      ? ' IFF (Quarterly)'
+      : 'IFF (Monthly)';
+  }
+
+  return ' Regular';
+};
+const getFinancialYears = (count = 5) => {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+
+  // If before April, current FY started last year
+  const startFY = currentMonth < 4 ? currentYear - 1 : currentYear;
+
+  return Array.from({ length: count }, (_, i) => {
+    const fyStart = startFY - i;
+    return {
+      label: `FY ${fyStart}-${String(fyStart + 1).slice(-2)}`,
+      value: fyStart,
+    };
+  });
+};
+
+const getFYStatus = (client, fy) => {
+  const monthsInFY = [
+    4, 5, 6, 7, 8, 9, 10, 11, 12, // Apr–Dec
+    1, 2, 3                // Jan–Mar
+  ];
+
+  let allFiled = true;
+
+  for (const m of monthsInFY) {
+    const year = m <= 3 ? fy + 1 : fy;
+    const status =
+      client.returns?.gst?.[year]?.[m]?.status || 'not_filed';
+
+    if (status !== 'filed') {
+      allFiled = false;
+      break;
+    }
+  }
+
+  return allFiled ? 'Filed' : 'Pending';
+};
+
 
 const Returnfilling = () => {
   const navigation = useNavigation();
@@ -93,6 +136,24 @@ const Returnfilling = () => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [tempStatus, setTempStatus] = useState('');
   const [loading, setLoading] = useState(true);
+  const [dimensions, setDimensions] = useState(Dimensions.get('window'));
+
+  // Handle screen orientation changes
+  useEffect(() => {
+    // Allow all orientations
+    ScreenOrientation.unlockAsync();
+
+    // Update dimensions on orientation change
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setDimensions(window);
+    });
+
+    // Cleanup
+    return () => {
+      subscription?.remove();
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   const [clients, setClients] = useState([]);
   const currentYear = new Date().getFullYear();
@@ -101,6 +162,11 @@ const Returnfilling = () => {
   const [error, setError] = useState(null);
   const scrollViewRef = useRef(null);
   const [fee, setFee] = useState(0);
+  const [gstType, setGstType] = useState('monthly');
+  const financialYears = getFinancialYears(5);
+  const [selectedFY, setSelectedFY] = useState(financialYears[0].value);
+
+  const months = getMonthsForFY(selectedFY);
 
 
   // Update filtered clients when clients or search query changes
@@ -109,10 +175,12 @@ const Returnfilling = () => {
       setFilteredClients(clients);
     } else {
       const filtered = clients.filter(client =>
-        client.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        client.businessName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         client.phone?.includes(searchQuery)
       );
+
+
       setFilteredClients(filtered);
     }
   }, [clients, searchQuery]);
@@ -137,7 +205,9 @@ const Returnfilling = () => {
       )
     });
   }, [navigation]);
-
+  useEffect(() => {
+    console.log("Filtered Clients:", filteredClients);
+  }, [filteredClients]);
 
   // Simple retry mechanism with limited retries
   const fetchWithRetry = async (url, options = {}) => {
@@ -198,58 +268,74 @@ const Returnfilling = () => {
     }
     throw lastError; // If all retries failed, throw the last error
   };
-const fetchClients = useCallback(async () => {
-  setLoading(true);
-  setRefreshing(true);
-  setError(null);
+  const fetchClients = useCallback(async () => {
+    setLoading(true);
+    setRefreshing(true);
+    setError(null);
 
-  try {
-    const creds = await authService.getStoredCredentials();
-    if (!creds?.email) return;
+    try {
+      const creds = await authService.getStoredCredentials();
+      if (!creds?.email) return;
 
-    const caUserName = creds.email;
+      const caUserName = creds.email;
 
-    const res = await axios.get(`${API_BASE_URL}/returns/all`, {
-      params: {
-        year: new Date().getFullYear(),
-        caUserName,
-        ...(searchQuery.trim() && { search: searchQuery.trim() }),
-      },
-    });
+      const res = await axios.get(`${API_BASE_URL}/returns/all`, {
+        params: {
+          year: selectedFY,
+          caUserName,
+          ...(searchQuery.trim() && { search: searchQuery.trim() }),
+        },
+      });
 
-    const data = res.data?.data || [];
+      const data = res.data?.data || [];
 
-    // Convert API response to your UI structure
-    const mappedClients = data.map(item => ({
-      _id: item.client._id,
-      businessName: item.client.businessName,
-      name: item.client.businessName,
-      email: item.client.email,
-      phone: item.client.phone,
-      gstNumber: item.gstNumber,
-      returns: {
-        gst: {
-          [item.year]: Object.fromEntries(
-            Object.entries(item.months).map(([m, v]) => [
-              Number(m),
-              { status: v.status }
-            ])
-          )
+      const mappedClients = data.map(item => ({
+        _id: item.client._id,
+
+        businessName: item.client.businessName || item.client.address || item.client.name,
+        phone: item.client.phone || item.client.phoneNumber,
+        email: item.client.email,
+        gstNumber: item.gstNumber,
+
+        gstType: (item.client.gstType || 'regular').toLowerCase(),
+
+        frequency:
+          item.client.gstType?.toLowerCase() === 'composition'
+            ? '3'
+            : item.client.frequency || '1',
+
+
+        returns: {
+          gst: {
+            [item.year]: Object.fromEntries(
+              Object.entries(item.months).map(([m, v]) => [
+                m, // 👈 KEEP STRING
+                { status: v.status }
+              ])
+            )
+
+          }
         }
-      }
-    }));
+      }));
 
-    setClients(mappedClients);
-    setFilteredClients(mappedClients);
 
-  } catch (e) {
-    console.log("Return Filing Load Error:", e);
-    Alert.alert("Error", "Failed to load Return Filing data");
-  } finally {
-    setLoading(false);
-    setRefreshing(false);
-  }
-}, [searchQuery]);
+
+      setClients(mappedClients);
+      setFilteredClients(mappedClients);
+
+
+
+
+
+
+    } catch (e) {
+      console.log("Return Filing Load Error:", e);
+      Alert.alert("Error", "Failed to load Return Filing data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [searchQuery, selectedFY]);
 
 
 
@@ -268,7 +354,15 @@ const fetchClients = useCallback(async () => {
     const client = clients.find(c => c._id === selectedClient);
     setFee(client?.defaultFee || 0);   // <-- AUTO FILL FEE
 
-    setShowConfirmation(true);
+    // If client has GST type 'iff', show GST type selection
+    if (client?.gstType === 'iff') {
+      setGstType(client.frequency === '3' ? 'quarterly' : 'monthly');
+      setShowConfirmation(true);
+    }
+    else {
+      setShowConfirmation(true);
+    }
+
     setStatusModalVisible(false);
   };
 
@@ -283,42 +377,55 @@ const fetchClients = useCallback(async () => {
       return;
     }
 
+    const client = clients.find(c => c._id === selectedClient);
+    if (!client) {
+      Alert.alert('Error', 'Client not found');
+      return;
+    }
+
+    // If GST type is 'iff' and quarterly is selected, verify it's a quarter-end month
+    if (client.gstType === 'iff' && gstType === 'quarterly') {
+      const quarterEndMonths = [3, 6, 9, 12];
+      if (!quarterEndMonths.includes(selectedMonth.month)) {
+        Alert.alert('Error', 'Quarterly filing is only allowed for quarter-end months (Mar, Jun, Sep, Dec)');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
-      const client = clients.find(c => c._id === selectedClient);
-      if (!client) {
-        Alert.alert('Error', 'Client not found');
-        return;
-      }
-
       const backendStatus = tempStatus === 'filed' ? 'filed' : 'not_filed';
-
-      // Create month key in format 'MMM 'YY' to match renderStatusCell format (e.g., 'Jan '23')
-      const monthKey = `${selectedMonth.monthName} '${String(selectedMonth.year).slice(-2)}`;
-
-      // Create display name for the month (e.g., 'Jan 2023')
       const displayMonthName = `${selectedMonth.monthName} ${selectedMonth.year}`;
 
-      // Create optimistic update
-      const updatedClients = clients.map(c => {
-        if (c._id === selectedClient) {
-          return {
-            ...c,
-            status: {
-              ...c.status,
-              [monthKey]: backendStatus,
-              // Also store the display name for rendering
-              [`${monthKey}_display`]: displayMonthName
+      // Update local state first for immediate feedback
+      setClients(prevClients => {
+        const updated = prevClients.map(c => {
+          if (c._id === selectedClient) {
+            const updatedClient = { ...c };
+
+            if (!updatedClient.returns) updatedClient.returns = { gst: {} };
+            if (!updatedClient.returns.gst) updatedClient.returns.gst = {};
+            if (!updatedClient.returns.gst[selectedMonth.year]) {
+              updatedClient.returns.gst[selectedMonth.year] = {};
             }
-          };
-        }
-        return c;
+
+            updatedClient.returns.gst[selectedMonth.year][String(selectedMonth.month)] = {
+              status: backendStatus
+            };
+
+
+            return updatedClient;
+          }
+          return c;
+        });
+
+        // 🔥 IMPORTANT: sync filteredClients
+        setFilteredClients(updated);
+
+        return updated;
       });
 
-      // Update local state immediately for better UX
-      setClients(updatedClients);
-      setFilteredClients(updatedClients);
 
       // Prepare update data
       const updateData = {
@@ -329,8 +436,13 @@ const fetchClients = useCallback(async () => {
         status: backendStatus,
         gstNumber: client.gstNumber,
         fee: fee,
-        totalOutstanding: client.totalOutstanding || 0
+        totalOutstanding: client.totalOutstanding || 0,
+        gstType: client.gstType === 'iff' ? gstType : 'regular'
       };
+
+      if (client.gstType === 'iff' && client.frequency === '3') {
+        updateData.quarterlyFiling = true;
+      }
 
       // Send update to server
       const response = await axios.put(
@@ -357,12 +469,11 @@ const fetchClients = useCallback(async () => {
       setShowConfirmation(false);
       setStatusModalVisible(false);
 
-    
       Alert.alert('Success', `Status updated successfully for ${displayMonthName}`);
     } catch (error) {
       console.error('Error updating status:', error);
       // Revert to previous state on error
-     
+      fetchClients(); // Refetch to ensure UI is in sync with server
       Alert.alert('Error', error.response?.data?.message || 'Failed to update status. Please try again.');
     } finally {
       setLoading(false);
@@ -372,151 +483,105 @@ const fetchClients = useCallback(async () => {
   const renderStatusCell = (client, month) => {
     if (!client || !month) return null;
 
-    const monthKey = `${month.monthName} '${month.year.toString().slice(-2)}`;
     const today = new Date();
     const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth() + 1; // 1-12
+    const currentMonth = today.getMonth() + 1;
 
-    // Determine if the month is in the past, current, or future
-    const isPastMonth = month.year < currentYear ||
-      (month.year === currentYear && month.month < currentMonth);
-    const isFutureMonth = month.year > currentYear ||
+    const isCurrentFY = selectedFY === getCurrentFY();
+
+    const isFutureMonth =
+      month.year > currentYear ||
       (month.year === currentYear && month.month > currentMonth);
 
-    // Get the status from client.returns.months or default to 'not_filed'
-let backendStatus = 'not_filed';
-
-// 1️⃣ Highest Priority → Local updated state
-if (client.status && client.status[monthKey]) {
-  backendStatus = client.status[monthKey];
-}
-
-// 2️⃣ Backend structured GST status
-else if (client.returns?.gst?.[month.year]?.[month.month]) {
-  backendStatus = client.returns.gst[month.year][month.month].status || 'not_filed';
-}
-
-// 3️⃣ Older format fallback
-else if (client.returns?.months) {
-  const monthEntry = Object.entries(client.returns.months).find(([key, m]) => {
-    const monthNum = parseInt(key, 10);
-    return m && monthNum === month.month && client.returns.year === month.year;
-  });
-
-  if (monthEntry?.[1]?.status) {
-    backendStatus = monthEntry[1].status;
-  }
-}
-
-    // For future months, always show 'Not Started' and make non-editable
-    if (isFutureMonth) {
+    // ✅ ONLY current FY should show "Not Started"
+    if (isCurrentFY && isFutureMonth) {
       return (
-        <View style={[
-          styles.statusCell,
-          {
-            backgroundColor: '#F3F4F6',
-            borderWidth: 1,
-            borderColor: '#E5E7EB',
-            borderRadius: 8,
-            opacity: 0.7
-          }
-        ]}>
-          <Text style={[styles.statusText, { color: '#6B7280' }]}>
+        <View style={styles.statusCell}>
+          <Text style={{ color: '#6B7280', fontSize: 11 }}>
             Not Started
           </Text>
         </View>
       );
     }
 
-    // Determine the status to display - only 'filed' or 'not_filed'
-    const getStatusConfig = (status) => {
-      // First check if status is an object with a 'status' property
-      const statusValue = status && typeof status === 'object' ? status.status : status;
+    // 🔒 IFF / Composition quarterly rule
+    if (
+      (client.gstType === 'iff' || client.gstType === 'composition') &&
+      client.frequency === '3' &&
+      ![3, 6, 9, 12].includes(month.month)
+    ) {
+      return (
+        <View style={[styles.statusCell, { opacity: 0.5 }]}>
+          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>—</Text>
+        </View>
+      );
+    }
 
-      const isFiled = statusValue === 'filed' || statusValue === 'completed';
+    // 📌 DB status resolution (NO DATA = NOT FILED)
+    let backendStatus = 'not_filed';
 
-      const config = isFiled ? {
-        color: '#10B981',
-        label: 'Filed',
-        icon: 'checkmark-circle',
-        isCompleted: true
-      } : {
-        color: '#EF4444',
-        label: 'Not Filed',
-        icon: 'close-circle',
-        isCompleted: false
-      };
+    const monthKey = String(month.month);
 
-      return config;
-    };
+    if (client.returns?.gst?.[month.year]?.[monthKey]) {
+      backendStatus =
+        client.returns.gst[month.year][monthKey].status || 'not_filed';
+    }
 
 
-    // Use the backend status directly if available, otherwise default to 'not_filed'
-    const statusToUse = backendStatus || 'not_filed';
-    const statusConfig = getStatusConfig(statusToUse);
-    const showCheckmark = statusConfig.isCompleted;
+    const isFiled = backendStatus === 'filed';
+
+    const statusColor = isFiled ? '#10B981' : '#EF4444';
+    const statusLabel = isFiled ? 'Filed' : 'Not Filed';
 
     return (
       <TouchableOpacity
         style={[
           styles.statusCell,
           {
-            backgroundColor: `${statusConfig.color}15`,
-            borderWidth: month.isCurrent ? 2 : 1,
-            borderColor: month.isCurrent ? statusConfig.color : '#E5E7EB',
+            backgroundColor: `${statusColor}15`,
+            borderColor: statusColor,
+            borderWidth: 1,
             borderRadius: 8,
-          }
+          },
         ]}
-        onPress={() => handleStatusSelect(client._id, month, statusToUse)}
+        onPress={() =>
+          handleStatusSelect(client._id, month, backendStatus)
+        }
       >
-        {/* Radio button indicator */}
-        <View style={[
-          styles.radioButton,
-          {
-            borderColor: statusConfig.color,
-            backgroundColor: showCheckmark ? statusConfig.color : 'transparent'
-          }
-        ]}>
-          {showCheckmark && (
-            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+        <View
+          style={[
+            styles.radioButton,
+            {
+              borderColor: statusColor,
+              backgroundColor: isFiled ? statusColor : 'transparent',
+            },
+          ]}
+        >
+          {isFiled && (
+            <Ionicons name="checkmark" size={14} color="#fff" />
           )}
         </View>
 
-        {/* Status text */}
-        <Text style={[
-          styles.statusText,
-          {
-            color: statusConfig.color,
-            fontWeight: statusToUse !== 'not_started' ? '600' : '400',
-            fontSize: 11
-          }
-        ]}>
-          {statusConfig.label}
+        <Text
+          style={{
+            fontSize: 11,
+            fontWeight: '600',
+            color: statusColor,
+          }}
+        >
+          {statusLabel}
         </Text>
       </TouchableOpacity>
     );
   };
 
-  const renderClientItem = ({ item }) => (
-    <View style={styles.clientRow} key={item._id}>
-      <View style={styles.clientNameCell}>
-        <Text style={styles.clientNameText} numberOfLines={1}>
-          {item.businessName || item.name || 'Unnamed Business'}
-        </Text>
-      </View>
-      {months.map(month => (
-        <View key={`${item._id}-${month.key}`} style={styles.statusCell}>
-          {renderStatusCell(item, month)}
-        </View>
-      ))}
-    </View>
-  );
 
- useFocusEffect(
-  useCallback(() => {
+
+
+  useEffect(() => {
     fetchClients();
-  }, [])
-);
+  }, [selectedFY, searchQuery]);
+
 
 
   const onRefresh = async () => {
@@ -538,10 +603,47 @@ else if (client.returns?.months) {
 
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Search bar */}
+  <SafeAreaView style={styles.container}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ flexGrow: 1 }}
+      keyboardShouldPersistTaps="handled"
+    >
+
+      {/* Financial Year */}
+      <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+        <Text style={{ fontSize: 13, color: '#374151', marginBottom: 6 }}>
+          Financial Year
+        </Text>
+
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: '#E5E7EB',
+            borderRadius: 8,
+            paddingHorizontal: 12,
+          }}
+        >
+       <Picker
+  selectedValue={selectedFY}
+  onValueChange={(value) => setSelectedFY(value)}
+  style={{ color: '#111827' }}   // 👈 ADD THIS
+>
+
+            {financialYears.map((fy) => (
+              <Picker.Item
+                key={fy.value}
+                label={fy.label}
+                value={fy.value}
+              />
+            ))}
+          </Picker>
+        </View>
+      </View>
+
+      {/* Search */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
+        <Ionicons name="search" size={20} color="#6B7280" />
         <TextInput
           style={styles.searchInput}
           placeholder="Search clients..."
@@ -554,65 +656,47 @@ else if (client.returns?.months) {
       {/* Status Grid */}
       <View style={styles.statusSection}>
         <View style={styles.gridContainer}>
-          {/* Fixed Business Names Column */}
+
+          {/* Fixed Column */}
           <View style={styles.fixedColumn}>
-            <View style={[styles.headerCell, { borderRightWidth: 1, borderRightColor: '#E5E7EB' }]}>
+            <View style={styles.headerCell}>
               <Text style={styles.headerText}>Business Name</Text>
             </View>
+
             <FlatList
               data={filteredClients}
+              scrollEnabled={false}
+              keyExtractor={(item) => item._id}
               renderItem={({ item }) => (
                 <View style={styles.clientNameCell}>
                   <Text style={styles.clientNameText} numberOfLines={1}>
-                    {item.businessName || item.name || 'Unnamed Business'}
+                    {item.businessName || 'Unnamed Business'}
+                  </Text>
+                  <Text style={styles.gstTypeText}>
+                    {formatGstTypeLabel(item)}
                   </Text>
                 </View>
               )}
-              keyExtractor={(item) => item._id}
-              ListEmptyComponent={
-                <View style={[styles.emptyContainer, { width: 200 }]}>
-                  <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
-                  <Text style={styles.emptyText}>
-                    {loading ? 'Loading...' : 'No clients found'}
-                  </Text>
-                </View>
-              }
             />
           </View>
 
-          {/* Scrollable Months Section */}
+          {/* Horizontal Months */}
           <ScrollView
-            ref={scrollViewRef}
             horizontal
-            showsHorizontalScrollIndicator={true}
-            onLayout={() => {
-              // Auto-scroll to current month
-              const currentIndex = months.findIndex((m) => m.isCurrent);
-              if (currentIndex !== -1 && scrollViewRef.current) {
-                const scrollPosition = currentIndex * 100; // 100 = width of each month cell
-                scrollViewRef.current.scrollTo({
-                  x: scrollPosition,
-                  animated: true,
-                });
-              }
-            }}
+            ref={scrollViewRef}
             style={styles.scrollableSection}
+            showsHorizontalScrollIndicator
           >
             <View>
-              {/* Header Row */}
+
+              {/* Month Header */}
               <View style={styles.headerRow}>
-                {months.map((month, index) => (
-                  <View key={`month-header-${month.key}-${index}`} style={styles.monthHeaderCell}>
-                    <Text style={[
-                      styles.monthHeaderText,
-                      month.isCurrent && { fontWeight: 'bold', color: '#3B82F6' }
-                    ]}>
+                {months.map((month) => (
+                  <View key={month.key} style={styles.monthHeaderCell}>
+                    <Text style={styles.monthHeaderText}>
                       {month.displayName}
                     </Text>
-                    <Text style={[
-                      styles.monthYearText,
-                      month.isCurrent && { color: '#3B82F6' }
-                    ]}>
+                    <Text style={styles.monthYearText}>
                       {month.fullYear}
                     </Text>
                   </View>
@@ -622,180 +706,177 @@ else if (client.returns?.months) {
               {/* Client Rows */}
               <FlatList
                 data={filteredClients}
-                ListEmptyComponent={
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateText}>
-                      {loading ? 'Loading clients...' : 'No clients found'}
-                    </Text>
-                  </View>
-                }
+                scrollEnabled={false}
+                keyExtractor={(item) => item._id}
                 renderItem={({ item }) => (
                   <View style={styles.clientRow}>
                     {months.map((month) => (
-                      <View key={`${item._id}-${month.key}`} style={styles.statusCell}>
+                      <View key={`${item._id}-${month.key}`}>
                         {renderStatusCell(item, month)}
                       </View>
                     ))}
                   </View>
                 )}
-                keyExtractor={(item) => item._id}
               />
+
             </View>
           </ScrollView>
         </View>
       </View>
 
-      {/* Status Update Modal */}
-      {/* Status Update Modal */}
+     {/* Status Update Modal */}
+      
       <Modal
-        visible={statusModalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setStatusModalVisible(false)}
+  visible={statusModalVisible}
+  transparent
+  animationType="slide"
+  onRequestClose={() => setStatusModalVisible(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={styles.statusModalContainer}>
+
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 24 }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.statusModalContent}>
 
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Update Return Status</Text>
-              <TouchableOpacity
-                onPress={() => setStatusModalVisible(false)}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color="#374151" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Client + Month Info */}
-            <View style={styles.modalInfoContainer}>
-              <Text style={styles.modalInfoText}>
-                <Text style={styles.modalInfoLabel}>Client: </Text>
-                {selectedClient && clients.find(c => c._id === selectedClient)?.businessName ||
-                  selectedClient && clients.find(c => c._id === selectedClient)?.name ||
-                  'Unknown Client'}
-              </Text>
-              <Text style={styles.modalInfoText}>
-                <Text style={styles.modalInfoLabel}>Month: </Text>
-                {selectedMonth ? `${selectedMonth.displayName} ${selectedMonth.fullYear}` : 'Unknown Month'}
-              </Text>
-            </View>
-
-            {/* Status Options */}
-            <ScrollView style={styles.statusOptionsContainer}>
-              {STATUS_OPTIONS.map(option => (
-                <TouchableOpacity
-                  key={option.id}
-                  style={[
-                    styles.statusOption,
-                    selectedStatus === option.id && {
-                      backgroundColor: `${option.color}15`,
-                      borderColor: option.color,
-                      borderWidth: 2,
-                    }
-                  ]}
-                  onPress={() => setSelectedStatus(option.id)}
-                >
-                  <Ionicons
-                    name={option.icon}
-                    size={22}
-                    color={selectedStatus === option.id ? option.color : '#6B7280'}
-                    style={{ marginRight: 12 }}
-                  />
-                  <Text style={[
-                    styles.statusOptionText,
-                    { color: selectedStatus === option.id ? option.color : '#111827' }
-                  ]}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {/* Footer Buttons */}
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setStatusModalVisible(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  styles.submitButton,
-                  !selectedStatus && { opacity: 0.5 }
-                ]}
-                onPress={() => handleStatusUpdate(selectedStatus)}
-                disabled={!selectedStatus}
-              >
-                <Text style={styles.submitButtonText}>Update</Text>
-              </TouchableOpacity>
-            </View>
-
-          </View>
+        {/* Header */}
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Update Return Status</Text>
+          <TouchableOpacity
+            onPress={() => setStatusModalVisible(false)}
+            style={styles.modalCloseButton}
+          >
+            <Ionicons name="close" size={22} />
+          </TouchableOpacity>
         </View>
-      </Modal>
+
+        {/* Client + Month Info */}
+        <View style={styles.modalInfoContainer}>
+          <Text style={styles.modalInfoText}>
+            <Text style={styles.modalInfoLabel}>Client: </Text>
+            {clients.find(c => c._id === selectedClient)?.businessName || '—'}
+          </Text>
+          <Text style={styles.modalInfoText}>
+            <Text style={styles.modalInfoLabel}>Month: </Text>
+            {selectedMonth
+              ? `${selectedMonth.displayName} ${selectedMonth.fullYear}`
+              : '—'}
+          </Text>
+        </View>
+
+        {/* Status Options */}
+        {STATUS_OPTIONS.map(option => (
+          <TouchableOpacity
+            key={option.id}
+            style={[
+              styles.statusOption,
+              selectedStatus === option.id && {
+                borderColor: option.color,
+                backgroundColor: `${option.color}15`,
+              },
+            ]}
+            onPress={() => setSelectedStatus(option.id)}
+          >
+            <Ionicons name={option.icon} size={20} color={option.color} />
+            <Text style={styles.statusOptionText}>{option.label}</Text>
+          </TouchableOpacity>
+        ))}
+
+        {/* Footer */}
+        <View style={styles.modalFooter}>
+          <TouchableOpacity
+            style={[styles.modalButton, styles.cancelButton]}
+            onPress={() => setStatusModalVisible(false)}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.modalButton, styles.submitButton]}
+            disabled={!selectedStatus}
+            onPress={() => handleStatusUpdate(selectedStatus)}
+          >
+            <Text style={styles.submitButtonText}>Update</Text>
+          </TouchableOpacity>
+        </View>
+
+      </ScrollView>
+    </View>
+  </View>
+</Modal>
+
 
 
       {/* Confirmation Dialog */}
-      <Modal
-        visible={showConfirmation}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowConfirmation(false)}
+    <Modal
+  visible={showConfirmation}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowConfirmation(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={styles.confirmationContainer}>
+
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 24 }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmationModal}>
-            <Text style={styles.confirmationTitle}>Confirm Status Update</Text>
 
-            <View style={styles.confirmationDetailRow}>
-              <Ionicons name="cash" size={18} color="#6B7280" />
-              <Text style={styles.confirmationDetailLabel}>Fee:</Text>
+        <Text style={styles.confirmationTitle}>
+          Confirm Status Update
+        </Text>
 
-              <TextInput
-                value={String(fee)}
-                keyboardType="numeric"
-                onChangeText={(v) => setFee(Number(v))}
-                style={{
-                  borderWidth: 1,
-                  borderColor: '#D1D5DB',
-                  borderRadius: 6,
-                  paddingHorizontal: 8,
-                  height: 32,
-                  width: 100
-                }}
-              />
-            </View>
-
-
-            <Text style={styles.confirmationText}>
-              Are you sure you want to update this return status?
-            </Text>
-            <View style={styles.confirmationButtons}>
-              <TouchableOpacity
-                style={[styles.confirmButton, styles.cancelButton]}
-                onPress={() => setShowConfirmation(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmButton, styles.submitButton]}
-                onPress={confirmStatusUpdate}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.submitButtonText}>Confirm</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+        {/* GST Type */}
+        {clients.find(c => c._id === selectedClient)?.gstType === 'iff' && (
+          <View style={styles.gstTypeContainer}>
+            ...
           </View>
+        )}
+
+        {/* Fee */}
+        <View style={styles.confirmationDetailRow}>
+          <Ionicons name="cash" size={18} />
+          <TextInput
+            value={String(fee)}
+            keyboardType="numeric"
+            onChangeText={(v) => setFee(Number(v))}
+            style={styles.feeInput}
+          />
         </View>
-      </Modal>
-    </SafeAreaView>
-  );
+
+        <Text style={styles.confirmationText}>
+          Are you sure you want to update this return status?
+        </Text>
+
+        <View style={styles.confirmationButtons}>
+          <TouchableOpacity
+            style={[styles.confirmButton, styles.cancelButton]}
+            onPress={() => setShowConfirmation(false)}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.confirmButton, styles.submitButton]}
+            onPress={confirmStatusUpdate}
+          >
+            <Text style={styles.submitButtonText}>Confirm</Text>
+          </TouchableOpacity>
+        </View>
+
+      </ScrollView>
+    </View>
+  </View>
+</Modal>
+
+
+    </ScrollView>
+  </SafeAreaView>
+);
+
 };
 const styles = StyleSheet.create({
   // Layout
@@ -861,6 +942,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
+  gstTypeText: {
+    fontSize: 12,
+    marginTop: 4,
+    fontFamily: 'System',
+    fontWeight: '600',
+  },
+
   emptyStateText: {
     fontSize: 16,
     color: '#6B7280',
@@ -883,10 +971,12 @@ const styles = StyleSheet.create({
   },
 
   // Status Grid
-  statusSection: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+statusSection: {
+ flex: 1,
+ flexGrow: 1,
+  backgroundColor: '#FFFFFF',
+},
+
 
   // Header Row
   headerRow: {
@@ -949,12 +1039,14 @@ const styles = StyleSheet.create({
   },
   statusCell: {
     width: 100,
-    padding: 8,
-    justifyContent: 'center',
+    padding: 6,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRightWidth: 1,
     borderRightColor: '#E5E7EB',
+    minHeight: 60,
   },
+
   clientNameCell: {
     width: '100%',
     padding: 16,
@@ -971,16 +1063,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Status Cells
-  statusCell: {
-    width: 100,
-    padding: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#E5E7EB',
-    minHeight: 60,
-  },
+
 
 
 
@@ -1037,6 +1120,30 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     fontFamily: 'System',
   },
+statusModalContainer: {
+  width: '90%',
+  padding: 10,
+  maxHeight: '100%',
+  backgroundColor: '#FFF',
+  borderRadius: 16,
+},
+
+confirmationContainer: {
+  width: '92%',
+  padding: 10,
+  maxHeight: '100%',
+  backgroundColor: '#FFF',
+  borderRadius: 16,
+},
+
+feeInput: {
+  borderWidth: 1,
+  borderColor: '#D1D5DB',
+  borderRadius: 6,
+  paddingHorizontal: 10,
+  height: 36,
+  width: 120,
+},
 
   // Modal Styles
   modalOverlay: {

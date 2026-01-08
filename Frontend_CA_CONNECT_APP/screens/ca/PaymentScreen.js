@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { API_BASE_URL } from '../../config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const PaymentScreen = () => {
   const [payments, setPayments] = useState([]);
@@ -46,6 +47,20 @@ const PaymentScreen = () => {
     received: 0,
     pending: 0
   });
+
+  useFocusEffect(
+  useCallback(() => {
+    // 🔒 Lock to portrait when screen is focused
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP
+    );
+
+    return () => {
+      // 🔓 Unlock when leaving the screen (optional)
+      ScreenOrientation.unlockAsync();
+    };
+  }, [])
+);
 
   const fetchCAPayments = async () => {
     try {

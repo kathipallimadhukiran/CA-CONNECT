@@ -42,7 +42,9 @@ const EditClientScreen = () => {
   // Fetch client details if not passed in params
   useEffect(() => {
     const fetchClientDetails = async () => {
-      if (clientData) return; // Skip if we already have the data
+     if (!clientId) return;
+// ALWAYS fetch fresh client data
+ 
 
       try {
         const token = await AsyncStorage.getItem('userToken');

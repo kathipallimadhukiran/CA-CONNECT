@@ -105,7 +105,14 @@ router.get('/all', async (req, res) => {
       ];
     }
 
-    const clients = await Client.find(clientQuery, 'businessName name email phone gstNumber isActive').lean();
+   const clients = await Client.find(
+  clientQuery,
+  'businessName email phone gstNumber gstType frequency isActive firstName lastName'
+).lean();
+clients.forEach(client => {
+  client.gstType = (client.gstType || 'Regular').toLowerCase();
+});
+
 
     // Get all returns for the current year for these clients
     const returns = await Return.find({
@@ -137,13 +144,28 @@ router.get('/all', async (req, res) => {
 
       // Initialize all months with 'not_filed' status
       const allMonths = {};
-      for (let m = 1; m <= 12; m++) {
-        allMonths[m] = clientReturn.months[m] || {
-          month: m,
-          status: 'not_filed',
-          monthName: getMonthName(m)
-        };
-      }
+      
+      const quarterMonths = [3, 6, 9, 12];
+
+for (let m = 1; m <= 12; m++) {
+
+  // IFF → disable non-quarter months
+  if (client.gstType === 'iff' && !quarterMonths.includes(m)) {
+    allMonths[m] = {
+      month: m,
+      status: 'not_applicable',
+      monthName: getMonthName(m)
+    };
+    continue;
+  }
+
+  allMonths[m] = clientReturn.months[m] || {
+    month: m,
+    status: 'not_filed',
+    monthName: getMonthName(m)
+  };
+}
+
 
       // Apply month filter if provided
       let filteredMonths = { ...allMonths };

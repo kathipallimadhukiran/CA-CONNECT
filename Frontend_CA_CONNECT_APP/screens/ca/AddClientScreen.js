@@ -30,14 +30,14 @@ const validateGST = (gst) => {
   // Last 1: Check digit (0-9 or A-Z)
   const gstRegex = /^([0-9]{2})([A-Z]{5}[0-9]{4}[A-Z]{1})([0-9A-Z]{1})(Z|z)([0-9A-Z]{1})$/;
   if (!gstRegex.test(gst)) return false;
-  
+
   // Additional validation for state code (first 2 digits)
   const stateCode = parseInt(gst.substring(0, 2));
   const validStateCodes = [
-    ...Array.from({length: 36}, (_, i) => i),  // 00-35
+    ...Array.from({ length: 36 }, (_, i) => i),  // 00-35
     37, 40, 99  // Additional valid state codes
   ];
-  
+
   return validStateCodes.includes(stateCode);
 };
 
@@ -59,58 +59,60 @@ const validatePAN = (pan) => {
 const AddClientScreen = () => {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
- 
+
 
   const [errors, setErrors] = useState({
     gstNumber: '',
     panNumber: ''
   });
   const [formData, setFormData] = useState({
-  firstName: '',
-  lastName: '',
-  phone: '',
-  email: '',
-  businessName: '',
-  caUserName: '',
-  gstNumber: '',
-  panNumber: '',
-  whatsappNumber: '',
-  gstType: 'Regular',
-  defaultFee: ''
-});
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    businessName: '',
+    caUserName: '',
+    gstNumber: '',
+    panNumber: '',
+    whatsappNumber: '',
+    gstType: 'Regular',
+    defaultFee: '',
+    frequency: '1' // '1' = Monthly, '3' = Quarterly
 
-  
-useEffect(() => {
-  const fetchEmail = async () => {
-    try {
-      const data = await AsyncStorage.getItem("userData");
+  });
 
-      if (data) {
-        const parsed = JSON.parse(data);
 
-        setFormData(prev => ({
-          ...prev,
-          caUserName: parsed.email   // ✅ correct key
-        }));
+  useEffect(() => {
+    const fetchEmail = async () => {
+      try {
+        const data = await AsyncStorage.getItem("userData");
 
-      } else {
-        console.log("No userData found");
+        if (data) {
+          const parsed = JSON.parse(data);
+
+          setFormData(prev => ({
+            ...prev,
+            caUserName: parsed.email   // correct key
+          }));
+
+        } else {
+          console.log("No userData found");
+        }
+
+      } catch (err) {
+        console.log("Error reading userData", err);
       }
+    };
 
-    } catch (err) {
-      console.log("Error reading userData", err);
-    }
-  };
-
-  fetchEmail();
-}, []);
+    fetchEmail();
+  }, []);
 
 
   const handleInputChange = (field, value) => {
     // Convert to uppercase for GST and PAN fields
     if (field === 'gstNumber' || field === 'panNumber') {
       value = value.toUpperCase();
-      
+
       // Dynamic validation
       if (field === 'gstNumber' && value) {
         const isValid = validateGST(value);
@@ -119,7 +121,7 @@ useEffect(() => {
           gstNumber: value.length === 15 && !isValid ? 'Invalid GST format (e.g., 22AAAAA0000A1Z5)' : ''
         }));
       }
-      
+
       if (field === 'panNumber' && value) {
         const isValid = validatePAN(value);
         setErrors(prev => ({
@@ -128,7 +130,7 @@ useEffect(() => {
         }));
       }
     }
-    
+
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -136,14 +138,14 @@ useEffect(() => {
   };
 
   const validateForm = () => {
-    const { 
-      firstName, 
-      lastName, 
-      email, 
-      phone, 
-      businessName, 
-      gstNumber, 
-      panNumber, 
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      businessName,
+      gstNumber,
+      panNumber,
       whatsappNumber,
       defaultDate,
       defaultFee,
@@ -151,7 +153,7 @@ useEffect(() => {
       billingDay,
       gstType
     } = formData;
-    
+
     // Required fields validation
     const requiredFields = {
       'First Name': firstName,
@@ -169,14 +171,14 @@ useEffect(() => {
         return false;
       }
     }
-    
+
     // Email validation - more permissive to allow various email formats
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       Alert.alert('Error', 'Please enter a valid email address (e.g., user@example.com)');
       return false;
     }
-    
+
     // Additional check for common email format issues
     if (email.indexOf('@') === -1 || email.indexOf('.') === -1) {
       Alert.alert('Error', 'Email must contain @ and a domain (e.g., example.com)');
@@ -195,7 +197,7 @@ useEffect(() => {
       Alert.alert('Error', 'Please enter a valid 10-digit WhatsApp number.');
       return false;
     }
-    
+
     // GST validation if provided
     if (gstNumber) {
       if (gstNumber.trim().length !== 15) {
@@ -231,103 +233,103 @@ useEffect(() => {
     return true;
   };
 
-const handleSubmit = async () => {
-  if (!validateForm()) return;
-  console.log('Form data:', formData);
-  setLoading(true);
-  try {
-    // Prepare the data to be sent
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+    console.log('Form data:', formData);
+    setLoading(true);
+    try {
+      // Prepare the data to be sent
     const clientData = {
-      ...formData,
-      phone: formData.phone.replace(/\s/g, ''), // Remove any spaces from phone
-      whatsappNumber: formData.whatsappNumber.replace(/\s/g, ''), // Remove any spaces from WhatsApp
-      defaultFee: parseFloat(formData.defaultFee),
-      // Add any additional fields that need processing
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const response = await fetch(`${API_BASE_URL}/clients/add`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(clientData),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to add client. Please try again.');
-    }
-
-    Alert.alert(
-      'Success',
-      'Client added successfully!',
-      [
-        {
-          text: 'OK',
-          onPress: () => {
-            handleReset(false);
-            navigation.goBack();
-          }
-        }
-      ]
-    );
-  } catch (error) {
-    Alert.alert('Error', error.message || 'An unexpected error occurred.');
-  } finally {
-    setLoading(false);
-  }
+  ...formData,
+  frequency:
+    formData.gstType === 'IFF'
+      ? formData.frequency
+      : '1',
+  defaultFee: Number(formData.defaultFee)
 };
+
+
+      const response = await fetch(`${API_BASE_URL}/clients/add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(clientData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to add client. Please try again.');
+      }
+
+      Alert.alert(
+        'Success',
+        'Client added successfully!',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              handleReset(false);
+              navigation.goBack();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      Alert.alert('Error', error.message || 'An unexpected error occurred.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
 
 
   const handleReset = (confirm = true) => {
     const resetAction = () => {
-        setFormData({
-            firstName: '',
-            lastName: '',
-            phone: '',
-            email: '',
-            businessName: '',
-            caUserName:'',
-            gstNumber: '',
-            panNumber: '',
-            whatsappNumber: '',
-            gstType: 'Regular',
-        });
+      setFormData({
+        firstName: '',
+        lastName: '',
+        phone: '',
+        email: '',
+        businessName: '',
+        caUserName: '',
+        gstNumber: '',
+        panNumber: '',
+        whatsappNumber: '',
+        gstType: 'Regular',
+        filingFrequency: 'monthly'
+      });
     };
 
     if (confirm) {
-        Alert.alert(
-            'Reset Form',
-            'Are you sure you want to clear all fields?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Reset',
-                style: 'destructive',
-                onPress: resetAction
-              }
-            ]
-        );
+      Alert.alert(
+        'Reset Form',
+        'Are you sure you want to clear all fields?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Reset',
+            style: 'destructive',
+            onPress: resetAction
+          }
+        ]
+      );
     } else {
-        resetAction();
+      resetAction();
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
@@ -341,7 +343,7 @@ const handleSubmit = async () => {
 
         <View style={styles.form}>
           <Text style={styles.sectionTitle}>Business Details</Text>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Business Name <Text style={styles.required}>*</Text></Text>
             <TextInput
@@ -408,19 +410,61 @@ const handleSubmit = async () => {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>GST Type</Text>
             <View style={styles.pickerContainer}>
-                <Picker
-                    selectedValue={formData.gstType}
-                    onValueChange={(itemValue) => handleInputChange('gstType', itemValue)}
-                    style={styles.picker}
-                >
-                    <Picker.Item label="Regular" value="Regular" />
-                    <Picker.Item label="Composition" value="Composition" />
-                    <Picker.Item label="IFF" value="IFF" />
-                    <Picker.Item label="Other" value="Other" />
-                </Picker>
+              <Picker
+                selectedValue={formData.gstType}
+                onValueChange={(itemValue) => handleInputChange('gstType', itemValue)}
+                style={styles.picker}
+              >
+                <Picker.Item label="Regular" value="Regular" />
+                <Picker.Item label="Composition" value="Composition" />
+                <Picker.Item label="IFF" value="IFF" />
+                <Picker.Item label="Other" value="Other" />
+              </Picker>
             </View>
+
+            {/* Filing Frequency Selection (only shown for IFF GST type) */}
+           {formData.gstType === 'IFF' && (
+  <View style={styles.filingFrequencyContainer}>
+    <Text style={styles.label}>Filing Frequency</Text>
+
+    <View style={styles.radioGroup}>
+      {/* Monthly */}
+      <TouchableOpacity
+        style={styles.radioButton}
+        onPress={() => handleInputChange('frequency', '1')}
+      >
+        <View
+          style={[
+            styles.radioOuter,
+            formData.frequency === '1' && styles.radioOuterSelected
+          ]}
+        >
+          {formData.frequency === '1' && <View style={styles.radioInner} />}
+        </View>
+        <Text style={styles.radioLabel}>Monthly</Text>
+      </TouchableOpacity>
+
+      {/* Quarterly */}
+      <TouchableOpacity
+        style={styles.radioButton}
+        onPress={() => handleInputChange('frequency', '3')}
+      >
+        <View
+          style={[
+            styles.radioOuter,
+            formData.frequency === '3' && styles.radioOuterSelected
+          ]}
+        >
+          {formData.frequency === '3' && <View style={styles.radioInner} />}
+        </View>
+        <Text style={styles.radioLabel}>Quarterly (3 Months Once)</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
+
           </View>
-          
+
           <Text style={styles.sectionTitle}>Contact Person</Text>
 
           <View style={styles.inputGroup}>
@@ -456,7 +500,7 @@ const handleSubmit = async () => {
               maxLength={10}
             />
           </View>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>WhatsApp Number<Text style={styles.required}>*</Text></Text>
             <TextInput
@@ -597,6 +641,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     marginBottom: 8
+  },
+  filingFrequencyContainer: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB'
+  },
+  radioGroup: {
+    flexDirection: 'row',
+    marginTop: 8
+  },
+  radioButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 20
+  },
+  radioOuter: {
+    height: 20,
+    width: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#9CA3AF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8
+  },
+  radioOuterSelected: {
+    borderColor: '#3B82F6'
+  },
+  radioInner: {
+    height: 12,
+    width: 12,
+    borderRadius: 6,
+    backgroundColor: '#3B82F6'
+  },
+  radioLabel: {
+    fontSize: 14,
+    color: '#374151'
   },
   pickerContainer: {
     backgroundColor: 'white',

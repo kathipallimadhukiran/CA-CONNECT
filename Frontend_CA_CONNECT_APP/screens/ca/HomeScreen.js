@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE_URL } from '../../config';
 import {
   View,
@@ -19,6 +19,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { authService } from '../../services/auth';
 import { useAuth } from '../../App';
+import * as ScreenOrientation from 'expo-screen-orientation';
+
 
 
 const screenWidth = Dimensions.get('window').width;
@@ -38,8 +40,21 @@ const HomeScreen = () => {
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
 
+
+
+  useEffect(() => {
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP
+    );
+
+    return () => {
+      ScreenOrientation.unlockAsync();
+    };
+  }, []);
+
   // Clear data when screen loses focus
   useFocusEffect(
+
     React.useCallback(() => {
       // Clear data when screen is focused
       setClients([]);
@@ -62,81 +77,6 @@ const HomeScreen = () => {
     setUser(userData);
   };
 
-  // Test function to debug credential storage
-  const testCredentials = async () => {
-    try {
-      console.log('=== Testing Credential Storage ===');
-      const isLoggedIn = await AsyncStorage.getItem('isLoggedIn');
-      const userEmail = await AsyncStorage.getItem('userEmail');
-      const userData = await AsyncStorage.getItem('userData');
-
-      console.log('Storage test results:');
-      console.log('- isLoggedIn:', isLoggedIn);
-      console.log('- userEmail:', userEmail);
-      console.log('- userData:', userData ? 'exists' : 'null');
-
-      // Test secure storage
-      const { email, password } = await authService.getStoredCredentials();
-      console.log('- Retrieved credentials:', { email, password: password ? '***' : null });
-
-      console.log('=== End Test ===');
-    } catch (error) {
-      console.error('Test credentials error:', error);
-    }
-  };
-
-  // Function to clear all storage and force fresh login
-  const clearStorageAndRelogin = async () => {
-    try {
-      console.log('=== Clearing All Storage ===');
-      await AsyncStorage.clear();
-      console.log('Storage cleared successfully');
-
-      // Force logout and return to login screen
-      await updateAuthState();
-    } catch (error) {
-      console.error('Clear storage error:', error);
-    }
-  };
-
-  // Function to test backend authentication directly
-  const testBackendAuth = async () => {
-    try {
-      console.log('=== Testing Backend Authentication ===');
-      const { email, password } = await authService.getStoredCredentials();
-
-      if (!email || !password) {
-        console.log('No stored credentials to test');
-        return;
-      }
-
-      console.log('Testing backend with credentials:', { email, password: '***' });
-
-      const response = await fetch(`${API_BASE_URL}/test-auth`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password })
-      });
-
-      console.log('Backend test response status:', response.status);
-      const data = await response.json();
-      console.log('Backend test response data:', data);
-
-      if (response.ok) {
-        console.log('✅ Backend authentication working correctly');
-        Alert.alert('Success', 'Backend authentication is working!');
-      } else {
-        console.log('❌ Backend authentication failed:', data.message);
-        Alert.alert('Error', `Backend test failed: ${data.message}`);
-      }
-
-    } catch (error) {
-      console.error('Backend auth test error:', error);
-      Alert.alert('Error', `Network error: ${error.message}`);
-    }
-  };
 
   // Simple in-memory cache
   const cache = {
@@ -221,8 +161,6 @@ const HomeScreen = () => {
       setClientsLoading(false);
     }
   };
-
-
 
 
   // Update stats without reloading all clients
@@ -382,7 +320,7 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
         {/* Horizontal Client List */}
-        {/* Horizontal Client List */}
+
         <View style={styles.clientListSection}>
           <Text style={styles.sectionTitle}>Clients</Text>
 
@@ -403,7 +341,8 @@ const HomeScreen = () => {
                   onPress={() =>
                     navigation.navigate('ClientDetails', {
                       clientId: client._id,
-                      clientName: client.name
+                      clientName: client.name,
+                      client: client
                     })
                   }
                   activeOpacity={0.85}

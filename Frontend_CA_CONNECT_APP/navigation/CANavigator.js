@@ -116,13 +116,48 @@ const HomeStack = () => (
       options={({ navigation, route }) => ({
         headerShown: true,
         headerTitle: route.params?.clientName || 'Client Details',
+
+        headerRight: () => (
+          <TouchableOpacity
+            onPress={() =>
+              navigation.navigate('EditClient', {
+                clientId: route.params?.clientId,
+                clientData: route.params?.client
+              })
+            }
+            style={{ marginRight: 16 }}
+          >
+            <Ionicons name="create-outline" size={22} color="#2563EB" />
+          </TouchableOpacity>
+        ),
+
         headerLeft: () => (
-          <TouchableOpacity onPress={() => navigation.navigate('HomeMain')} style={{ marginLeft: 16 }}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('HomeMain')}
+            style={{ marginLeft: 16 }}
+          >
             <Ionicons name="arrow-back" size={24} color="#2563EB" />
           </TouchableOpacity>
         ),
       })}
     />
+    <Stack.Screen
+      name="EditClient"
+      component={EditClientScreen}
+      options={({ navigation }) => ({
+        headerShown: true,
+        headerTitle: 'Edit Client',
+        headerLeft: () => (
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={{ marginLeft: 16 }}
+          >
+            <Ionicons name="arrow-back" size={24} color="#2563EB" />
+          </TouchableOpacity>
+        ),
+      })}
+    />
+
     <Stack.Screen
       name="PaymentHistory"
       component={PaymentHistoryScreen}
@@ -179,7 +214,7 @@ const ClientStack = () => {
               })}
               style={{ marginRight: 16 }}
             >
-              <Ionicons name="pencil" size={24} color="#2563EB" />
+              <Ionicons name="create-outline" size={24} color="#2563EB" />
             </TouchableOpacity>
           ),
           headerLeft: () => (

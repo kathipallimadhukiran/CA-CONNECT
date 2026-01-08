@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator, ScrollView,
   TouchableOpacity, Linking, Alert, Modal, TextInput, Platform, FlatList, Dimensions
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation, useIsFocused } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -15,13 +15,15 @@ import { API_BASE_URL } from '../../config';
 import AddAmountModal from '../../components/modals/AddAmountModal';
 import ManualPaymentModal from '../../components/modals/ManualPaymentModal';
 import FileUploadModal from '../../components/modals/FileUploadModal';
+import * as ScreenOrientation from 'expo-screen-orientation';
+
+
 
 const { width } = Dimensions.get('window');
 
 const ClientDetailsScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const isFocused = useIsFocused();
   const { clientId } = route.params || {};
 
   // State declarations
@@ -41,6 +43,63 @@ const ClientDetailsScreen = () => {
   const [token, setToken] = useState('');
   const [uploading, setUploading] = useState(false);
 
+  // Function to navigate to edit client screen
+  const navigateToEditClient = useCallback(() => {
+    if (!client) {
+      Alert.alert('Error', 'Cannot edit client: Client data not loaded');
+      return;
+    }
+
+    navigation.navigate('EditClient', {
+      clientId: client._id,
+      clientData: {
+        firstName: client.firstName || '',
+        lastName: client.lastName || '',
+        email: client.email || '',
+        phone: client.phone || client.phoneNumber || '',
+        businessName: client.businessName || '',
+        gstNumber: client.gstNumber || '',
+        panNumber: client.panNumber || '',
+        gstType: client.gstType || 'Regular',
+        address: client.address || ''
+      }
+    });
+  }, [client, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
+  useFocusEffect(
+    useCallback(() => {
+      if (!client?._id) return;
+
+      navigation.setOptions({
+        headerRight: () => (
+          <TouchableOpacity
+            onPress={navigateToEditClient}
+            style={{ marginRight: 16 }}
+          >
+            <Ionicons name="create-outline" size={22} color="#2563EB" />
+          </TouchableOpacity>
+        ),
+      });
+
+      // cleanup to avoid ghost headers
+      return () => {
+        navigation.setOptions({ headerRight: undefined });
+      };
+    }, [client, navigateToEditClient])
+  );
   // Fetch token from AsyncStorage
   const getToken = useCallback(async () => {
     try {
@@ -52,7 +111,6 @@ const ClientDetailsScreen = () => {
       console.error('Error fetching token:', error);
     }
   }, []);
-
   // Fetch client details
   const fetchClientDetails = async () => {
     if (!clientId) return;
@@ -130,13 +188,15 @@ const ClientDetailsScreen = () => {
       setLoading(false);
     }
   };
-
-
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: true, // 🔥 force header even if parent hides it
+    });
+  }, [navigation]);
   // Fetch token on component mount
   useEffect(() => {
     getToken();
   }, [getToken]);
-
   // Fetch client details when clientId or token changes
   useEffect(() => {
     if (clientId) {
@@ -332,25 +392,7 @@ const ClientDetailsScreen = () => {
     });
   };
 
-  // Navigate to edit client screen
-  const navigateToEditClient = () => {
-    if (!client) return;
 
-    navigation.navigate('EditClient', {
-      clientId: client._id,
-      clientData: {
-        firstName: client.firstName || '',
-        lastName: client.lastName || '',
-        email: client.email || '',
-        phone: client.phone || client.phoneNumber || '',
-        businessName: client.businessName || '',
-        gstNumber: client.gstNumber || '',
-        panNumber: client.panNumber || '',
-        gstType: client.gstType || 'Regular',
-        address: client.address || ''
-      }
-    });
-  };
 
   if (loading) {
     return (
@@ -408,7 +450,7 @@ const ClientDetailsScreen = () => {
               <TouchableOpacity style={styles.callButton} onPress={handleCall}>
                 <Ionicons name="call" size={24} color="#3498db" />
               </TouchableOpacity>
-           
+
             </View>
 
             <View style={styles.contactInfo}>

@@ -20,6 +20,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
 import { API_BASE_URL } from '../../config';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const STATUS_ICONS = {
   pending: { icon: 'hourglass-outline', color: '#F59E0B', label: 'Pending' },
@@ -100,6 +101,20 @@ const ClientListScreen = () => {
       fetchClients();
     }, [fetchClients])
   );
+  useFocusEffect(
+  useCallback(() => {
+    // 🔒 Lock to portrait when screen is focused
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP
+    );
+
+    return () => {
+      // 🔓 Unlock when leaving the screen (optional)
+      ScreenOrientation.unlockAsync();
+    };
+  }, [])
+);
+
 
   useEffect(() => {
     let filtered = [...clients];

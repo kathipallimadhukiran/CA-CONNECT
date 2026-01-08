@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TextInput, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Alert,
@@ -26,21 +26,21 @@ const LoginScreen = () => {
   const [loading, setLoading] = useState(false);
 
   const { updateAuthState } = useAuth();
-  
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter both email and password');
       return;
     }
-    
+
     setLoading(true);
     try {
       const result = await authService.login(email, password);
       console.log('Login successful:', result);
-      
+
       // Update the authentication state in App.js
       await updateAuthState();
-      
+
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Login Failed', error.message || 'Invalid email or password. Please try again.');
@@ -53,90 +53,103 @@ const LoginScreen = () => {
     navigation.navigate('Register');
   };
 
+  const handleForgotPassword = () => {
+    navigation.navigate('ForgotPassword');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-        <View style={styles.header}>
-          <Text style={styles.welcomeText}>CA Connect</Text>
-          <Text style={styles.subtitle}>Smart Client Management for Chartered Accountants</Text>
-        </View>
-
-        <View style={styles.formContainer}>
-          {/* Dummy Login Info */}
-          <View style={styles.dummyInfo}>
-            <Text style={styles.dummyTitle}>Demo Credentials:</Text>
-            <Text style={styles.dummyText}>Email: ca@example.com / Password: 123456</Text>
+          <View style={styles.header}>
+            <Text style={styles.welcomeText}>CA Connect</Text>
+            <Text style={styles.subtitle}>Smart Client Management for Chartered Accountants</Text>
           </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email address"
-              placeholderTextColor="#9CA3AF"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+          <View style={styles.formContainer}>
+            {/* Dummy Login Info */}
+            <View style={styles.dummyInfo}>
+              <Text style={styles.dummyTitle}>Demo Credentials:</Text>
+              <Text style={styles.dummyText}>Email: ca@example.com / Password: 123456</Text>
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordInputContainer}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email Address</Text>
               <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="Enter your password"
+                style={styles.input}
+                placeholder="Enter your email address"
                 placeholderTextColor="#9CA3AF"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
               />
-              <TouchableOpacity
-                style={styles.showHideButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons 
-                  name={showPassword ? 'eye-off' : 'eye'} 
-                  size={20} 
-                  color="#6B7280" 
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.passwordInputContainer}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9CA3AF"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={setPassword}
                 />
+                <TouchableOpacity
+                  style={styles.showHideButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off' : 'eye'}
+                    size={20}
+                    color="#6B7280"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.forgotPasswordContainer}
+              onPress={handleForgotPassword}
+            >
+              <Text style={styles.forgotPasswordText}>
+                Forgot Password?
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="white" size="small" />
+                  <Text style={styles.loadingText}>Logging in...</Text>
+                </View>
+              ) : (
+                <Text style={styles.loginButtonText}>Login</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={handleSignUp}>
+                <Text style={styles.signUpText}>Sign Up</Text>
               </TouchableOpacity>
             </View>
           </View>
-
-          <TouchableOpacity
-            style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator color="white" size="small" />
-                <Text style={styles.loadingText}>Logging in...</Text>
-              </View>
-            ) : (
-              <Text style={styles.loginButtonText}>Login</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={handleSignUp}>
-              <Text style={styles.signUpText}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

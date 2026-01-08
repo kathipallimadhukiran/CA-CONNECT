@@ -9,6 +9,8 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 // Import screens
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import CANavigator from './navigation/CANavigator';
 
 const Stack = createStackNavigator();
@@ -38,7 +40,7 @@ export default function App() {
       // Check if user is already logged in
       const isLoggedIn = await AsyncStorage.getItem('isLoggedIn');
       const userData = await AsyncStorage.getItem('userData');
-      
+
       if (isLoggedIn === 'true' && userData) {
         const user = JSON.parse(userData);
         setIsAuthenticated(true);
@@ -76,7 +78,7 @@ export default function App() {
     <AuthContext.Provider value={{ updateAuthState }}>
       <NavigationContainer>
         <StatusBar style="auto" />
-        <Stack.Navigator 
+        <Stack.Navigator
           initialRouteName={isAuthenticated ? "Main" : "Auth"}
           screenOptions={{
             headerShown: false
@@ -90,9 +92,9 @@ export default function App() {
           ) : (
             // Main App Stack
             <Stack.Group>
-              <Stack.Screen 
-                name="Main" 
-                component={CANavigator} 
+              <Stack.Screen
+                name="Main"
+                component={CANavigator}
               />
             </Stack.Group>
           )}
@@ -105,11 +107,39 @@ export default function App() {
 // Auth Navigator Component
 const AuthNavigator = () => {
   const Stack = createStackNavigator();
-  
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen
+        name="ForgotPassword"
+        component={ForgotPasswordScreen}
+        options={{
+          headerShown: true,
+          title: 'Forgot Password',
+          headerStyle: {
+            backgroundColor: '#f8f9fa',
+            elevation: 0,
+            shadowOpacity: 0,
+          },
+          headerTintColor: '#2d3748',
+        }}
+      />
+      <Stack.Screen
+        name="ResetPassword"
+        component={ResetPasswordScreen}
+        options={{
+          headerShown: true,
+          title: 'Reset Password',
+          headerStyle: {
+            backgroundColor: '#f8f9fa',
+            elevation: 0,
+            shadowOpacity: 0,
+          },
+          headerTintColor: '#2d3748',
+        }}
+      />
     </Stack.Navigator>
   );
 };

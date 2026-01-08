@@ -20,8 +20,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { authService } from '../../services/auth';
 import { useAuth } from '../../App';
 import * as ScreenOrientation from 'expo-screen-orientation';
-
-
+import { useAutoReload } from '../../hooks/useAutoReload';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -214,6 +213,18 @@ const HomeScreen = () => {
     setRefreshing(false);
   };
 
+  // Auto-reload functionality
+  const refreshData = useCallback(async () => {
+    await loadClients(true);
+    await loadUserData();
+  }, []);
+
+  useAutoReload(refreshData, {
+    interval: 30000, // 30 seconds
+    reloadOnFocus: true,
+    enableInterval: false // Set to true if you want periodic reloads
+  });
+
   const handleLogout = async () => {
     Alert.alert(
       'Logout',
@@ -238,12 +249,13 @@ const HomeScreen = () => {
     );
   };
 
-  // Graph data: monthly earnings
-  // Build dynamic monthly earnings from clients outstanding + paid
+  // Graph data: monthly earnings from actual payments
   const buildMonthlyChart = () => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentYear = new Date().getFullYear();
 
     if (!clients || clients.length === 0) {
+      console.log('No clients data available');
       return {
         labels: monthNames,
         datasets: [{ data: new Array(12).fill(0) }]
@@ -252,12 +264,50 @@ const HomeScreen = () => {
 
     const monthlyTotals = new Array(12).fill(0);
 
-    clients.forEach(c => {
-      const out = Number(c?.totalOutstanding) || 0;
-      const paid = Number(c?.totalPaid) || 0;
-      const created = new Date(c?.createdAt || Date.now()).getMonth();
-      monthlyTotals[created] += (out + paid);
+    console.log('Building chart with clients:', clients.length);
+    console.log('Sample client data:', clients[0]);
+
+    // Calculate earnings from all clients' payment history for current year
+    clients.forEach((client, index) => {
+      console.log(`Client ${index}: ${client.name}, payments:`, client.payments);
+
+      if (client.payments && client.payments.length > 0) {
+        client.payments.forEach((payment, paymentIndex) => {
+          const paymentDate = new Date(payment.createdAt || payment.date);
+          console.log(`Payment ${paymentIndex}:`, payment);
+
+          // Only include payments from current year
+          if (paymentDate.getFullYear() === currentYear) {
+            const month = paymentDate.getMonth();
+            const amount = Number(payment.amount) || 0;
+
+            console.log(`Adding ₹${amount} to month ${month} (${monthNames[month]})`);
+
+            // Only count completed payments (not outstanding)
+            if (payment.status === 'completed' || payment.type === 'manual') {
+              monthlyTotals[month] += amount;
+            }
+          }
+        });
+      }
+
+      // Also check totalPaid as fallback
+      const totalPaid = Number(client.totalPaid) || 0;
+      if (totalPaid > 0 && (!client.payments || client.payments.length === 0)) {
+        console.log(`Using totalPaid fallback for ${client.name}: ₹${totalPaid}`);
+        // Distribute totalPaid across months where client was created
+        const createdDate = new Date(client.createdAt || Date.now());
+        if (createdDate.getFullYear() === currentYear) {
+          const createdMonth = createdDate.getMonth();
+          monthlyTotals[createdMonth] += totalPaid;
+        }
+      }
     });
+
+    console.log('Final monthly totals:', monthlyTotals);
+
+    // Don't distribute outstanding amounts - only show actual payments
+    // This will show real monthly earnings, not projections
 
     // Prevent Infinity issue — chart kit bug when all values are 0
     const hasAnyValue = monthlyTotals.some(v => v > 0);
@@ -406,8 +456,8 @@ const HomeScreen = () => {
 
           <LineChart
             data={chartData}
-            width={screenWidth - 40}
-            height={180}
+            width={screenWidth - 80}
+            height={160}
             chartConfig={{
               backgroundColor: '#ffffff',
               backgroundGradientFrom: '#ffffff',
@@ -417,13 +467,20 @@ const HomeScreen = () => {
               labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
               style: { borderRadius: 16 },
               propsForDots: {
-                r: '5',
+                r: '4',
                 strokeWidth: '2',
                 stroke: '#2563EB'
+              },
+              propsForLabels: {
+                fontSize: 10
               }
             }}
             bezier
             style={styles.chart}
+            withInnerLines={false}
+            withOuterLines={true}
+            withVerticalLines={false}
+            withHorizontalLines={true}
           />
         </View>
 

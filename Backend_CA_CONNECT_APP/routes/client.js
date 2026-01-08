@@ -9,20 +9,20 @@ const Task = require('../models/Task');
 // @desc    Add a new client (no auth required)
 // @access  Public
 router.post('/add', async (req, res) => {
- const {
-  email,
-  firstName,
-  lastName,
-  phone,
-  businessName,
-  caUserName,
-  gstNumber,
-  panNumber,
-  whatsappNumber,
-  gstType,
-  frequency,
-  defaultFee
-} = req.body;
+  const {
+    email,
+    firstName,
+    lastName,
+    phone,
+    businessName,
+    caUserName,
+    gstNumber,
+    panNumber,
+    whatsappNumber,
+    gstType,
+    frequency,
+    defaultFee
+  } = req.body;
 
   console.log("Received client data:", req.body);
   if (!email || !firstName || !lastName || !phone || !businessName) {
@@ -30,20 +30,20 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-  const newClient = new Client({
-  email,
-  firstName,
-  lastName,
-  phone,
-  businessName,
-  gstNumber,
-  caUserName,
-  panNumber,
-  whatsappNumber,
-  gstType,
-  frequency: gstType === 'IFF' ? frequency : '1',
-  defaultFee: Number(defaultFee) || 0
-});
+    const newClient = new Client({
+      email,
+      firstName,
+      lastName,
+      phone,
+      businessName,
+      gstNumber,
+      caUserName,
+      panNumber,
+      whatsappNumber,
+      gstType,
+      frequency: gstType === 'IFF' ? frequency : '1',
+      defaultFee: Number(defaultFee) || 0
+    });
 
 
 
@@ -118,98 +118,36 @@ router.get('/', async (req, res) => {
       ];
     }
 
-    const clients = await Client.aggregate([
-      { $match: matchQuery },
-      {
-        $lookup: {
-          from: "payments",
-          localField: "_id",
-          foreignField: "clientId",
-          as: "payments"
-        }
-      },
-      {
-        $addFields: {
-          totalAdded: {
-            $sum: {
-              $map: {
-                input: "$payments",
-                as: "p",
-                in: {
-                  $cond: [
-                    { $eq: ["$$p.type", "outstanding"] },
-                    "$$p.amount",
-                    0
-                  ]
-                }
-              }
-            }
-          },
-          totalPaidOutstanding: {
-            $sum: {
-              $map: {
-                input: "$payments",
-                as: "p",
-                in: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $eq: ["$$p.type", "outstanding"] },
-                        { $eq: ["$$p.status", "completed"] }
-                      ]
-                    },
-                    "$$p.amount",
-                    0
-                  ]
-                }
-              }
-            }
-          },
-          manualPaid: {
-            $sum: {
-              $map: {
-                input: "$payments",
-                as: "p",
-                in: {
-                  $cond: [
-                    { $eq: ["$$p.type", "manual"] },
-                    "$$p.amount",
-                    0
-                  ]
-                }
-              }
-            }
-          }
-        }
-      },
-      {
-        $addFields: {
-          totalOutstanding: {
-            $subtract: [
-              "$totalAdded",
-              { $add: ["$totalPaidOutstanding", "$manualPaid"] }
-            ]
-          }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          name: { $concat: ["$firstName", " ", "$lastName"] },
-          email: 1,
-          phoneNumber: "$phone",
-          address: "$businessName",
-          caUserName: 1,
-          gstType: 1,
-          gstNumber: 1,
-          panNumber: 1,
-          totalOutstanding: 1
-        }
-      },
-      { $skip: (page - 1) * Number(limit) },
-      { $limit: Number(limit) }
-    ]);
-    res.json({ clients });
+    const getPaymentSummary = require('../utils/paymentSummary');
+
+    // Get clients without payment aggregation first
+    const clients = await Client.find(matchQuery)
+      .skip((page - 1) * Number(limit))
+      .limit(Number(limit))
+      .lean();
+
+    // Get payment summary for each client
+    const finalClients = await Promise.all(
+      clients.map(async (c) => {
+        const summary = await getPaymentSummary(c._id);
+        return {
+          _id: c._id,
+          name: `${c.firstName} ${c.lastName}`,
+          email: c.email,
+          phoneNumber: c.phone,
+          address: c.businessName,
+          caUserName: c.caUserName,
+          gstType: c.gstType,
+          gstNumber: c.gstNumber,
+          panNumber: c.panNumber,
+          totalAdded: summary.totalAdded,
+          totalPaid: summary.totalPaid,
+          totalOutstanding: summary.totalOutstanding
+        };
+      })
+    );
+
+    res.json({ clients: finalClients });
   } catch (error) {
     console.error("Error fetching clients:", error);
     res.status(500).json({ message: "Server error while fetching clients." });
@@ -285,18 +223,9 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Client not found.' });
     }
 
-    // Aggregate payments - separate added amounts from recorded payments
-    const paymentSummary = await Payment.aggregate([
-      { $match: { clientId: client._id } },
-      {
-        $group: {
-          _id: "$clientId",
-          totalAdded: { $sum: { $cond: [{ $eq: ["$type", "outstanding"] }, "$amount", 0] } },
-          totalPaid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "completed"] }, { $eq: ["$type", "outstanding"] }] }, "$amount", 0] } },
-          manualPayments: { $sum: { $cond: [{ $eq: ["$type", "manual"] }, "$amount", 0] } },
-        }
-      }
-    ]);
+    const getPaymentSummary = require('../utils/paymentSummary');
+
+    const summary = await getPaymentSummary(client._id);
 
     const lastPayment = await Payment.findOne({ clientId: client._id, status: 'completed' })
       .sort({ paidAt: -1 });
@@ -309,13 +238,6 @@ router.get('/:id', async (req, res) => {
     ]);
     const fileCount = fileAggregation.length > 0 ? fileAggregation[0].totalFiles : 0;
 
-    const summary = paymentSummary[0] || {};
-    const totalAdded = summary.totalAdded || 0;
-    const totalPaidFromBalance = summary.totalPaid || 0;
-    const manualPayments = summary.manualPayments || 0;
-    const totalPaidOverall = totalPaidFromBalance + manualPayments;
-    const balance = totalAdded - totalPaidOverall;
-
     const clientDetails = {
       id: client._id,
       name: `${client.firstName} ${client.lastName}`,
@@ -326,9 +248,9 @@ router.get('/:id', async (req, res) => {
       gstType: client.gstType,
       gstNumber: client.gstNumber,
       panNumber: client.panNumber,
-      totalAdded: totalAdded,
-      totalPaid: totalPaidOverall,
-      totalOutstanding: balance,
+      totalAdded: summary.totalAdded,
+      totalPaid: summary.totalPaid,
+      totalOutstanding: summary.totalOutstanding,
       lastPaymentDate: lastPayment?.paidAt || null,
       fileCount
     };

@@ -29,13 +29,46 @@ const ReturnSchema = new mongoose.Schema({
         min: 1,
         max: 12
       },
+      gstr1: {
+        status: {
+          type: String,
+          enum: ['pending', 'filed', 'not_filed'],
+          default: 'not_filed',
+          required: true
+        },
+        filedAt: Date,
+        filedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        fee: {
+          type: Number,
+          default: 0
+        }
+      },
+      gstr3b: {
+        status: {
+          type: String,
+          enum: ['pending', 'filed', 'not_filed'],
+          default: 'not_filed',
+          required: true
+        },
+        filedAt: Date,
+        filedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        fee: {
+          type: Number,
+          default: 0
+        }
+      },
+      // Legacy status field for backward compatibility
       status: {
         type: String,
         enum: ['pending', 'in-progress', 'completed', 'filed', 'not_filed'],
-        default: 'pending',
-        required: true
+        default: 'not_filed'
       }
-      // Removed all optional fields to keep the document clean
     }, { _id: false, timestamps: false })
   },
   createdBy: {
@@ -54,12 +87,12 @@ ReturnSchema.index({ client: 1, gstNumber: 1, year: 1 }, { unique: true });
 
 // Add text index for search
 ReturnSchema.index(
-  { 
+  {
     'gstNumber': 'text',
     'months.$*.status': 'text',
     'months.$*.remarks': 'text'
   },
-  { 
+  {
     weights: {
       'gstNumber': 5,
       'months.$*.status': 2,
@@ -69,7 +102,7 @@ ReturnSchema.index(
 );
 
 // Static method to get or create return document
-ReturnSchema.statics.findOrCreate = async function(clientId, gstNumber, year, createdBy) {
+ReturnSchema.statics.findOrCreate = async function (clientId, gstNumber, year, createdBy) {
   let returnDoc = await this.findOne({ client: clientId, gstNumber, year });
   if (!returnDoc) {
     returnDoc = new this({
@@ -85,7 +118,7 @@ ReturnSchema.statics.findOrCreate = async function(clientId, gstNumber, year, cr
 };
 
 // Method to update month status
-ReturnSchema.methods.updateMonthStatus = async function(month, status, remarks = '', documents = [], updatedBy) {
+ReturnSchema.methods.updateMonthStatus = async function (month, status, remarks = '', documents = [], updatedBy) {
   const monthData = {
     month,
     status,
@@ -94,14 +127,14 @@ ReturnSchema.methods.updateMonthStatus = async function(month, status, remarks =
     updatedBy,
     updatedAt: new Date()
   };
-  
+
   this.months.set(month.toString(), monthData);
   this.markModified('months');
   return this.save();
 };
 
 // Method to get formatted return data
-ReturnSchema.methods.getFormattedData = function() {
+ReturnSchema.methods.getFormattedData = function () {
   const result = {
     _id: this._id,
     client: this.client,
@@ -125,7 +158,7 @@ ReturnSchema.methods.getFormattedData = function() {
   if (this.months && this.months instanceof Map) {
     for (const [month, data] of this.months.entries()) {
       if (!data) continue;
-      
+
       const monthNum = parseInt(month, 10);
       if (monthNum >= 1 && monthNum <= 12) {
         result.months[month] = {

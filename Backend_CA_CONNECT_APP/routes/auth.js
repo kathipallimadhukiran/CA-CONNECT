@@ -3,6 +3,8 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const CA = require('../models/CA');
 const { protect } = require('../middleware/auth');
+const sendEmail = require('../utils/sendEmail');
+const { resetPasswordEmail, passwordResetConfirmationEmail } = require('../utils/emailTemplates');
 
 const router = express.Router();
 
@@ -35,7 +37,7 @@ router.post('/register', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: 'Validation failed',
         errors: errors.array().map(err => ({
@@ -46,9 +48,9 @@ router.post('/register', [
     }
 
     const { email, name, phone, qualification, password } = req.body;
-    
+
     // Check if user already exists by email or phone
-    const existingUser = await User.findOne({ 
+    const existingUser = await User.findOne({
       $or: [
         { email: email.toLowerCase().trim() },
         { phone: phone.trim() }
@@ -56,10 +58,10 @@ router.post('/register', [
     });
 
     if (existingUser) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: existingUser.email === email.toLowerCase() 
-          ? 'Email already registered' 
+        message: existingUser.email === email.toLowerCase()
+          ? 'Email already registered'
           : 'Phone number already registered'
       });
     }
@@ -129,31 +131,31 @@ router.post('/register', [
     });
   } catch (error) {
     console.error('Registration error:', error);
-    
+
     // Handle duplicate key errors
     if (error.code === 11000) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'User with this email or phone already exists' 
+        message: 'User with this email or phone already exists'
       });
     }
-    
+
     // Handle validation errors
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: 'Validation error',
-        errors: messages 
+        errors: messages
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
       message: 'Server error during registration',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  }  
+  }
 });
 
 // @route   POST /api/auth/login
@@ -217,7 +219,7 @@ router.post('/login', [
 router.get('/me', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-password');
-    
+
     // Get CA profile
     const caProfile = await CA.findOne({ userId: user._id });
     const profile = { ...user.toObject(), caProfile };
@@ -283,7 +285,7 @@ router.post('/change-password', protect, [
     const { currentPassword, newPassword } = req.body;
 
     const user = await User.findById(req.user._id);
-    
+
     // Check current password
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
@@ -330,9 +332,9 @@ router.post('/logout', protect, async (req, res) => {
 router.post('/debug', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     console.log('Debug endpoint - Received credentials:', { email, password: password ? '***' : null });
-    
+
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
     }
@@ -340,7 +342,7 @@ router.post('/debug', async (req, res) => {
     // Check if user exists
     const user = await User.findOne({ email: email.toLowerCase() });
     console.log('Debug endpoint - User found:', !!user);
-    
+
     if (!user) {
       return res.status(400).json({ message: 'User not found' });
     }
@@ -348,7 +350,7 @@ router.post('/debug', async (req, res) => {
     // Check password
     const isMatch = await user.comparePassword(password);
     console.log('Debug endpoint - Password match:', isMatch);
-    
+
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid password' });
     }
@@ -366,6 +368,155 @@ router.post('/debug', async (req, res) => {
   } catch (error) {
     console.error('Debug endpoint error:', error);
     res.status(500).json({ message: 'Server error during debug', error: error.message });
+  }
+});
+
+// @route   POST /api/auth/forgot-password
+// @desc    Forgot password - Send verification code to email
+// @access  Public
+router.post('/forgot-password', [
+  body('email')
+    .isEmail()
+    .withMessage('Please include a valid email')
+    .normalizeEmail()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email } = req.body;
+
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    // Don't reveal if user doesn't exist (for security)
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a verification code has been sent.'
+      });
+    }
+
+    // Generate and save verification code
+    const verificationCode = user.generateVerificationCode();
+    await user.save({ validateBeforeSave: false });
+
+    try {
+      // Send email with verification code
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Reset Verification Code',
+        ...resetPasswordEmail(`${user.firstName} ${user.lastName}`, verificationCode)
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a verification code has been sent.'
+      });
+    } catch (error) {
+      console.error('Email sending error:', error);
+      user.resetVerificationCode = undefined;
+      user.resetVerificationExpires = undefined;
+      await user.save({ validateBeforeSave: false });
+
+      return res.status(500).json({
+        success: false,
+        message: 'Email could not be sent'
+      });
+    }
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during password reset request'
+    });
+  }
+});
+
+// @route   POST /api/auth/verify-reset-code
+// @desc    Verify reset code and update password
+// @access  Public
+router.post('/verify-reset-code', [
+  body('email')
+    .isEmail()
+    .withMessage('Please include a valid email')
+    .normalizeEmail(),
+  body('code')
+    .notEmpty()
+    .withMessage('Verification code is required'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email, code, newPassword } = req.body;
+
+    // Find user by email with valid verification code
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      resetVerificationExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired verification code'
+      });
+    }
+
+    // Verify the code
+    if (!user.verifyResetCode(code)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code'
+      });
+    }
+
+    // Update password and clear verification code
+    user.password = newPassword;
+    user.resetVerificationCode = undefined;
+    user.resetVerificationExpires = undefined;
+
+    await user.save();
+
+    // Send confirmation email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Reset Successful',
+        ...passwordResetConfirmationEmail(`${user.firstName} ${user.lastName}`)
+      });
+    } catch (emailError) {
+      console.error('Confirmation email error:', emailError);
+      // Don't fail the request if the confirmation email fails
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Password has been reset successfully'
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during password reset'
+    });
   }
 });
 

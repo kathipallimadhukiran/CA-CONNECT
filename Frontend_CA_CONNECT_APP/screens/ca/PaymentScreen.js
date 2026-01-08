@@ -21,6 +21,7 @@ import { Picker } from '@react-native-picker/picker';
 import { API_BASE_URL } from '../../config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { useAutoReload } from '../../hooks/useAutoReload';
 
 const PaymentScreen = () => {
   const [payments, setPayments] = useState([]);
@@ -49,18 +50,18 @@ const PaymentScreen = () => {
   });
 
   useFocusEffect(
-  useCallback(() => {
-    // 🔒 Lock to portrait when screen is focused
-    ScreenOrientation.lockAsync(
-      ScreenOrientation.OrientationLock.PORTRAIT_UP
-    );
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
 
-    return () => {
-      // 🔓 Unlock when leaving the screen (optional)
-      ScreenOrientation.unlockAsync();
-    };
-  }, [])
-);
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
   const fetchCAPayments = async () => {
     try {
@@ -87,24 +88,33 @@ const PaymentScreen = () => {
 
       // 2. Get payments for all clients
       const clientIds = clients.map(c => c._id);
-      let url = `${API_BASE_URL}/payments`;
-
-      if (useDateFilter) {
-        url += `?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
-      }
+      const url = `${API_BASE_URL}/payments`;
 
       const paymentsResponse = await fetch(url);
       if (!paymentsResponse.ok) throw new Error('Failed to fetch payments');
       const data = await paymentsResponse.json();
 
-      // Filter payments by client IDs and date range if enabled
+      console.log('Date filter enabled:', useDateFilter);
+      console.log('Date range:', dateRange);
+      console.log('Total payments before filter:', data.payments?.length || 0);
+
       const filteredPayments = (data.payments || []).filter(p => {
         const clientMatch = clientIds.includes(p.clientId);
         if (!useDateFilter) return clientMatch;
 
         const createdAt = new Date(p.createdAt);
-        return clientMatch && createdAt >= dateRange.from && createdAt <= dateRange.to;
+        const fromDate = new Date(dateRange.from);
+        const toDate = new Date(dateRange.to);
+
+        // Set time to start/end of day for inclusive comparison
+        fromDate.setHours(0, 0, 0, 0);
+        toDate.setHours(23, 59, 59, 999);
+
+        const dateMatch = createdAt >= fromDate && createdAt <= toDate;
+        return clientMatch && dateMatch;
       });
+
+      console.log('Filtered payments count:', filteredPayments.length);
 
       setPayments(filteredPayments);
 
@@ -142,7 +152,7 @@ const PaymentScreen = () => {
 
   useEffect(() => {
     fetchCAPayments();
-  }, [dateRange, useDateFilter]);
+  }, [dateRange, useDateFilter, filter, sortBy]);
   useFocusEffect(
     useCallback(() => {
       fetchCAPayments();
@@ -153,6 +163,13 @@ const PaymentScreen = () => {
     setRefreshing(true);
     fetchCAPayments();
   };
+
+  // Auto-reload functionality
+  useAutoReload(fetchCAPayments, {
+    interval: 30000, // 30 seconds
+    reloadOnFocus: true,
+    enableInterval: false // Set to true if you want periodic reloads
+  });
 
   const formatDate = (date) =>
     date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });

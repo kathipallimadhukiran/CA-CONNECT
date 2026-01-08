@@ -43,7 +43,7 @@ router.get('/client/:clientId/history', async (req, res) => {
     }
 
     const query = { clientId };
-    
+
     const payments = await Payment.find(query)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
@@ -159,10 +159,7 @@ router.post('/create', [
 
     await payment.save();
 
-    // ✅ Update client outstanding
-    await Client.findByIdAndUpdate(task.clientId, {
-      $inc: { totalOutstanding: amount }
-    });
+    // Payment record created - totals are now derived from payments aggregation
 
     res.status(201).json({
       message: 'Payment created successfully',
@@ -203,11 +200,7 @@ router.put('/:paymentId/status', [
     if (status === 'completed') {
       payment.paidAt = new Date();
 
-      // ✅ update client totals
-      await Client.findByIdAndUpdate(payment.clientId, {
-        $inc: { totalPaid: payment.amount, totalOutstanding: -payment.amount },
-        $set: { lastPaymentDate: payment.paidAt }
-      });
+      // Payment status updated - totals are now derived from payments aggregation
     }
 
     await payment.save();
@@ -252,10 +245,7 @@ router.post('/:paymentId/refund', [
 
     await payment.processRefund(amount, reason);
 
-    // ✅ adjust client totals
-    await Client.findByIdAndUpdate(payment.clientId, {
-      $inc: { totalPaid: -amount }
-    });
+    // Refund processed - totals are now derived from payments aggregation
 
     res.json({
       message: 'Refund processed successfully',
@@ -396,8 +386,8 @@ router.put('/:paymentId/mark-paid', async (req, res) => {
 
 // Add a test route to verify the payment router is working
 router.get('/test', (req, res) => {
-  res.status(200).json({ 
-    success: true, 
+  res.status(200).json({
+    success: true,
     message: 'Payment routes are working',
     timestamp: new Date().toISOString()
   });

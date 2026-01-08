@@ -21,6 +21,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from "axios";
 import { API_BASE_URL } from '../../config';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { useAutoReload } from '../../hooks/useAutoReload';
 
 const STATUS_ICONS = {
   pending: { icon: 'hourglass-outline', color: '#F59E0B', label: 'Pending' },
@@ -102,18 +103,18 @@ const ClientListScreen = () => {
     }, [fetchClients])
   );
   useFocusEffect(
-  useCallback(() => {
-    // 🔒 Lock to portrait when screen is focused
-    ScreenOrientation.lockAsync(
-      ScreenOrientation.OrientationLock.PORTRAIT_UP
-    );
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
 
-    return () => {
-      // 🔓 Unlock when leaving the screen (optional)
-      ScreenOrientation.unlockAsync();
-    };
-  }, [])
-);
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
 
   useEffect(() => {
@@ -164,6 +165,13 @@ const ClientListScreen = () => {
     setRefreshing(false);
   };
 
+  // Auto-reload functionality
+  useAutoReload(fetchClients, {
+    interval: 30000, // 30 seconds
+    reloadOnFocus: true,
+    enableInterval: false // Set to true if you want periodic reloads
+  });
+
   const renderClient = ({ item }) => {
     console.log('Rendering client:', item.name, 'totalOutstanding:', item.totalOutstanding, 'type:', typeof item.totalOutstanding);
     const status = getStatus(item.pendingFiles);
@@ -184,7 +192,7 @@ const ClientListScreen = () => {
 
 
 
-                {/* Call Button */}
+            {/* Call Button */}
             <TouchableOpacity
               onPress={() => {
                 const phoneNumber = item.phoneNumber || item.phone;
@@ -223,7 +231,7 @@ const ClientListScreen = () => {
               </Text>
             </View>
 
-        
+
           </View>
         </View>
         <View style={{ flexDirection: 'row', marginTop: 8 }}>
@@ -398,34 +406,34 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     opacity: 0.6,
   },
-callButton: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  paddingVertical: 6,
-  paddingHorizontal: 12,
-  borderRadius: 20,
-  backgroundColor: '#E6F9EC',    // soft light green
-  borderWidth: 1,
-  borderColor: '#16A34A',        // primary green
-  marginTop: 6,
+  callButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#E6F9EC',    // soft light green
+    borderWidth: 1,
+    borderColor: '#16A34A',        // primary green
+    marginTop: 6,
 
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.1,
-  shadowRadius: 3,
-  elevation: 2,
-  marginVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    marginVertical: 6,
 
-},
+  },
 
 
-callButtonText: {
-  marginLeft: 6,
-  color: '#2563EB',
-  fontSize: 13,
-  fontWeight: '600',
-}
-,
+  callButtonText: {
+    marginLeft: 6,
+    color: '#2563EB',
+    fontSize: 13,
+    fontWeight: '600',
+  }
+  ,
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',

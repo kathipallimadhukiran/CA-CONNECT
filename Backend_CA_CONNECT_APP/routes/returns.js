@@ -77,8 +77,13 @@ const getMonthName = (monthNumber) => {
 
 // @route   GET api/returns/all
 // @desc    Get all clients with their return statuses
-// @access  Public
 router.get('/all', async (req, res) => {
+  // Disable caching
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('X-Accel-Expires', '0');
+
   try {
     const {
       year = new Date().getFullYear(),
@@ -105,13 +110,13 @@ router.get('/all', async (req, res) => {
       ];
     }
 
-   const clients = await Client.find(
-  clientQuery,
-  'businessName email phone gstNumber gstType frequency isActive firstName lastName'
-).lean();
-clients.forEach(client => {
-  client.gstType = (client.gstType || 'Regular').toLowerCase();
-});
+    const clients = await Client.find(
+      clientQuery,
+      'businessName email phone gstNumber gstType frequency isActive firstName lastName'
+    ).lean();
+    clients.forEach(client => {
+      client.gstType = (client.gstType || 'Regular').toLowerCase();
+    });
 
 
     // Get all returns for the current year for these clients
@@ -144,28 +149,24 @@ clients.forEach(client => {
 
       // Initialize all months with 'not_filed' status
       const allMonths = {};
-      
+
       const quarterMonths = [3, 6, 9, 12];
 
-for (let m = 1; m <= 12; m++) {
+      // In the GET /all route, update the month data normalization
+      for (let m = 1; m <= 12; m++) {
+        const raw = clientReturn.months?.[m] || {};
 
-  // IFF → disable non-quarter months
-  if (client.gstType === 'iff' && !quarterMonths.includes(m)) {
-    allMonths[m] = {
-      month: m,
-      status: 'not_applicable',
-      monthName: getMonthName(m)
-    };
-    continue;
-  }
-
-  allMonths[m] = clientReturn.months[m] || {
-    month: m,
-    status: 'not_filed',
-    monthName: getMonthName(m)
-  };
-}
-
+        allMonths[m] = {
+          gstr1: {
+            status: raw?.gstr1?.status || 'not_filed',
+            fee: raw?.gstr1?.fee || 0
+          },
+          gstr3b: {
+            status: raw?.gstr3b?.status || 'not_filed',
+            fee: raw?.gstr3b?.fee || 0
+          }
+        };
+      }
 
       // Apply month filter if provided
       let filteredMonths = { ...allMonths };
@@ -393,59 +394,110 @@ router.get('/client/:clientId', async (req, res) => {
 // @route   PUT /api/returns/update-status
 // @desc    Update return status for a client, GST, year, and month
 // @access  Public
+// In Backend_CA_CONNECT_APP\routes\returns.js
 router.put('/update-status', async (req, res) => {
-
   try {
-    const { clientId, status, fee } = req.body;
+    const {
+      clientId,
+      year,
+      monthNumber,
+      returnType, // 'gstr1', 'gstr3b', or 'both'
+      status,
+      fee = 0,
+      gstNumber
+    } = req.body;
 
-    const client = await Client.findById(clientId);
-    if (!client) return res.status(404).json({ message: "Client not found" });
+    /* ===============================
+       IFF / COMPOSITION (SINGLE RETURN)
+       =============================== */
+    if (returnType === 'both') {
 
-    const finalFee = fee ?? client.defaultFee ?? 0;
+      await Return.updateOne(
+        { client: clientId, gstNumber, year },
+        {
+          $set: {
+            [`months.${monthNumber}.gstr1.status`]: status,
+            [`months.${monthNumber}.gstr1.fee`]: fee,
+            [`months.${monthNumber}.gstr1.filedAt`]: status === 'filed' ? new Date() : null,
 
-    // update filing here based on your DB design
-    await Return.updateOne(
-      { client: clientId, year: req.body.year },
-      {
-        $set: {
-          [`months.${req.body.monthNumber}.status`]: status,
-          [`months.${req.body.monthNumber}.fee`]: finalFee,
-          [`months.${req.body.monthNumber}.updatedAt`]: new Date()
-        }
-      },
-      { upsert: true }
-    );
-
-
-    if (status === "filed" && finalFee > 0) {
-
-      const payment = new Payment({
-        clientId,
-        amount: finalFee,
-        status: "pending",
-        type: "outstanding",
-        paymentMethod: "online", // Using 'online' as it's a valid enum value
-        description: `Return Filing ${req.body.month} ${req.body.year}`,
-        dueDate: new Date(),
-        reference: `RETURN-${clientId}-${req.body.month}-${req.body.year}`,
-        notes: "Auto generated when filing marked as filed"
-      });
-
-
-      await payment.save();
-
-      await Client.findByIdAndUpdate(
-        clientId,
-        { $inc: { totalOutstanding: finalFee } }
+            [`months.${monthNumber}.gstr3b.status`]: status,
+            [`months.${monthNumber}.gstr3b.fee`]: fee,
+            [`months.${monthNumber}.gstr3b.filedAt`]: status === 'filed' ? new Date() : null,
+          }
+        },
+        { upsert: true }
       );
+
+      // ONE payment for IFF / Composition
+      if (status === 'filed' && fee > 0) {
+        const payment = await Payment.create({
+          clientId,
+          amount: fee,
+          description: `GST Return (IFF/Composition) for ${monthNumber}/${year}`,
+          paymentMethod: 'bank-transfer',
+          status: 'pending',
+          dueDate: new Date(year, monthNumber, 20),
+          type: 'outstanding',
+          createdBy: req.user?._id || new mongoose.Types.ObjectId('000000000000000000000001')
+        });
+
+
+      }
     }
 
-    res.json({ success: true });
+    /* ===============================
+       REGULAR GST (GSTR-1 / GSTR-3B)
+       =============================== */
+    else {
+
+      await Return.updateOne(
+        { client: clientId, gstNumber, year },
+        {
+          $set: {
+            [`months.${monthNumber}.${returnType}.status`]: status,
+            [`months.${monthNumber}.${returnType}.fee`]: fee,
+            [`months.${monthNumber}.${returnType}.filedAt`]:
+              status === 'filed' ? new Date() : null
+          }
+        },
+        { upsert: true }
+      );
+
+      // ONE payment per return
+      if (status === 'filed' && fee > 0) {
+        const payment = await Payment.create({
+          clientId,
+          amount: fee,
+          description: `GSTR-${returnType === 'gstr1' ? '1' : '3B'} for ${monthNumber}/${year}`,
+          paymentMethod: 'bank-transfer',
+          status: 'pending',
+          dueDate: new Date(
+            year,
+            monthNumber,
+            returnType === 'gstr1' ? 11 : 20
+          ),
+          type: 'outstanding',
+          createdBy: req.user?._id || new mongoose.Types.ObjectId('000000000000000000000001')
+        });
+
+        // Payment record created - no manual client total updates needed
+        // totals are now derived from payments aggregation
+      }
+    }
+
+    return res.json({ success: true });
 
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, message: "Server Error" });
+    console.error('Error updating return status:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update return status'
+    });
   }
 });
+
+
+// ... rest of the code ...
+
 
 module.exports = router;

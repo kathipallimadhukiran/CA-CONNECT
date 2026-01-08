@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator, ScrollView,
-  TouchableOpacity, Linking, Alert, Modal, TextInput, Platform, FlatList, Dimensions
+  TouchableOpacity, Linking, Alert, Modal, TextInput, Platform, FlatList, Dimensions, RefreshControl
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,8 +16,7 @@ import AddAmountModal from '../../components/modals/AddAmountModal';
 import ManualPaymentModal from '../../components/modals/ManualPaymentModal';
 import FileUploadModal from '../../components/modals/FileUploadModal';
 import * as ScreenOrientation from 'expo-screen-orientation';
-
-
+import { useAutoReload } from '../../hooks/useAutoReload';
 
 const { width } = Dimensions.get('window');
 
@@ -42,6 +41,7 @@ const ClientDetailsScreen = () => {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [token, setToken] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Function to navigate to edit client screen
   const navigateToEditClient = useCallback(() => {
@@ -188,11 +188,27 @@ const ClientDetailsScreen = () => {
       setLoading(false);
     }
   };
+
+  // Handle pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchClientDetails();
+    setRefreshing(false);
+  };
+
+  // Auto-reload functionality
+  useAutoReload(fetchClientDetails, {
+    interval: 30000, // 30 seconds
+    reloadOnFocus: true,
+    enableInterval: false // Set to true if you want periodic reloads
+  });
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true, // 🔥 force header even if parent hides it
     });
   }, [navigation]);
+
   // Fetch token on component mount
   useEffect(() => {
     getToken();
@@ -420,7 +436,13 @@ const ClientDetailsScreen = () => {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollViewContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* 1. Client Details Division */}
         <View style={styles.section}>
           <View style={styles.clientDetailsCard}>

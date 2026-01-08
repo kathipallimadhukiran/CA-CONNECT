@@ -13,7 +13,7 @@ router.get('/client/:clientId', async (req, res) => {
     const filings = await Filing.find({ clientId: req.params.clientId })
       .sort({ month: -1, type: 1 })
       .populate('filedBy', 'name email');
-    
+
     return res.json(filings);
   } catch (err) {
     console.error('Error in GET /api/filings/client/:clientId:', err);
@@ -38,16 +38,16 @@ router.post('/', async (req, res) => {
       if (fee !== undefined) updateFields.fee = fee;
       if (status) updateFields.status = status;
       if (notes !== undefined) updateFields.notes = notes;
-      
+
       filing = await Filing.findByIdAndUpdate(
         filing._id,
         { $set: updateFields },
         { new: true, session }
       );
-      
+
       await session.commitTransaction();
       session.endSession();
-      
+
       return res.json(filing);
     } else {
       // Create new filing
@@ -59,9 +59,9 @@ router.post('/', async (req, res) => {
         status: status || 'pending',
         notes
       });
-      
+
       await filing.save({ session });
-      
+
       // Create a payment record for the filing
       const payment = new Payment({
         clientId: new mongoose.Types.ObjectId(clientId),
@@ -73,26 +73,18 @@ router.post('/', async (req, res) => {
         type: 'outstanding',
         notes: 'Automatically generated from filing creation'
       });
-      
+
       await payment.save({ session });
-      
-      // Update client's outstanding balance
-      await Client.findByIdAndUpdate(
-        clientId,
-        { 
-          $inc: { totalOutstanding: filing.fee },
-          $set: { lastPaymentDate: new Date() }
-        },
-        { session }
-      );
-      
+
+      // Payment record created - totals are now derived from payments aggregation
+
       // Add payment reference to filing
       filing.paymentId = payment._id;
       await filing.save({ session });
-      
+
       await session.commitTransaction();
       session.endSession();
-      
+
       return res.status(201).json({
         ...filing.toObject(),
         paymentId: payment._id
@@ -142,11 +134,7 @@ router.put('/:filingId/filed', async (req, res) => {
 
       await payment.save();
 
-      // update client outstanding
-      await Client.findByIdAndUpdate(
-        filing.clientId,
-        { $inc: { totalOutstanding: finalFee } }
-      );
+      // Payment record created - totals are now derived from payments aggregation
 
       filing.paymentId = payment._id;
       await filing.save();

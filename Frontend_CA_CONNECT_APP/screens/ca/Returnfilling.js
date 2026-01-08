@@ -22,6 +22,7 @@ import axios from "axios";
 import { API_BASE_URL } from '../../config';
 import { authService } from '../../services/auth';
 import { Picker } from '@react-native-picker/picker';
+import { useAutoReload } from '../../hooks/useAutoReload';
 
 
 // Response interceptor
@@ -32,6 +33,7 @@ axios.interceptors.response.use(
 
 const { width, height } = Dimensions.get('window');
 
+
 const getCurrentFY = () => {
   const today = new Date();
   return today.getMonth() + 1 < 4
@@ -39,7 +41,40 @@ const getCurrentFY = () => {
     : today.getFullYear();
 };
 
-const getMonthsForFY = (fy) => {
+const getMonthsForFY = (fy, gstType = 'regular') => {
+  // For composition, only show quarterly months (Apr, Jul, Oct, Jan)
+  if (gstType === 'composition') {
+    const quarterMonths = [
+      { name: 'Apr', month: 4, quarter: 'Q1' },
+      { name: 'Jul', month: 7, quarter: 'Q2' },
+      { name: 'Oct', month: 10, quarter: 'Q3' },
+      { name: 'Jan', month: 1, quarter: 'Q4' }
+    ];
+
+    return quarterMonths.map(({ name, month, quarter }) => {
+      const year = month <= 3 ? fy + 1 : fy;
+      const displayYear = month <= 3 ? fy + 1 : fy;
+
+      const today = new Date();
+      const isCurrent =
+        fy === getCurrentFY() &&
+        today.getFullYear() === year &&
+        today.getMonth() + 1 === month;
+
+      return {
+        key: `${name}-${fy}-${quarter}`,
+        monthName: `${name} (${quarter})`,
+        month: month,
+        year: year,
+        displayName: `${name} (${quarter})`,
+        fullYear: displayYear,
+        isCurrent,
+        quarter: quarter
+      };
+    });
+  }
+
+  // For regular and IFF, show all months
   const monthNames = [
     'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
     'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'
@@ -47,7 +82,7 @@ const getMonthsForFY = (fy) => {
 
   return monthNames.map((name, index) => {
     const monthNumber = index < 9 ? index + 4 : index - 8; // Apr=4 ... Mar=3
-    const year = index < 9 ? fy : fy + 1; // First 9 months (Apr-Dec) are in the current FY, next 3 (Jan-Mar) in next year
+    const year = index < 9 ? fy : fy + 1; // First 9 months (Apr-Dec) are in current FY, next 3 (Jan-Mar) in next year
     const displayYear = monthNumber <= 3 ? fy + 1 : fy; // For display purposes
 
     const today = new Date();
@@ -62,7 +97,7 @@ const getMonthsForFY = (fy) => {
       month: monthNumber,
       year: year,
       displayName: name,
-      fullYear: displayYear, // This is what's shown in the header
+      fullYear: displayYear, // This is what's shown in header
       isCurrent,
     };
   });
@@ -81,12 +116,13 @@ const formatGstTypeLabel = (client) => {
 
   if (client.gstType === 'iff') {
     return client.frequency === '3'
-      ? ' IFF (Quarterly)'
+      ? 'IFF (Quarterly)'
       : 'IFF (Monthly)';
   }
 
-  return ' Regular';
+  return 'Regular';
 };
+
 const getFinancialYears = (count = 5) => {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -104,26 +140,42 @@ const getFinancialYears = (count = 5) => {
 };
 
 const getFYStatus = (client, fy) => {
-  const monthsInFY = [
-    4, 5, 6, 7, 8, 9, 10, 11, 12, // Apr–Dec
-    1, 2, 3                // Jan–Mar
-  ];
-
-  let allFiled = true;
+  const monthsInFY = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
+  const quarterEndMonths = [3, 6, 9, 12]; // Mar, Jun, Sep, Dec
 
   for (const m of monthsInFY) {
     const year = m <= 3 ? fy + 1 : fy;
-    const status =
-      client.returns?.gst?.[year]?.[m]?.status || 'not_filed';
+    const monthData = client.returns?.gst?.[year]?.[m];
 
-    if (status !== 'filed') {
-      allFiled = false;
-      break;
+    // Skip if no data for this month
+    if (!monthData) {
+      return 'Pending';
+    }
+
+    // For Composition, only check quarter end months (Apr, Jul, Oct, Jan correspond to Mar, Jun, Sep, Dec filing)
+    if (client.gstType?.toLowerCase() === 'composition') {
+      // Composition files quarterly, so only check quarter end months
+      if (!quarterEndMonths.includes(parseInt(m))) {
+        continue; // Skip non-quarter end months for composition
+      }
+    }
+
+    // For IFF, check based on frequency
+    if (client.gstType?.toLowerCase() === 'iff') {
+      const isQuarterly = client.frequency === '3';
+      if (isQuarterly && !quarterEndMonths.includes(parseInt(m))) {
+        continue; // Skip non-quarter months for quarterly IFF
+      }
+    }
+
+    // Check if either return is not filed
+    if (monthData.gstr1?.status !== 'filed' || monthData.gstr3b?.status !== 'filed') {
+      return 'Pending';
     }
   }
-
-  return allFiled ? 'Filed' : 'Pending';
+  return 'Filed';
 };
+
 
 
 const Returnfilling = () => {
@@ -133,6 +185,7 @@ const Returnfilling = () => {
   const [selectedClient, setSelectedClient] = useState(null);
   const [statusModalVisible, setStatusModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedReturnType, setSelectedReturnType] = useState('gstr1'); // 'gstr1' or 'gstr3b'
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [tempStatus, setTempStatus] = useState('');
   const [loading, setLoading] = useState(true);
@@ -163,11 +216,11 @@ const Returnfilling = () => {
   const scrollViewRef = useRef(null);
   const [fee, setFee] = useState(0);
   const [gstType, setGstType] = useState('monthly');
+  const [selectedGstType, setSelectedGstType] = useState('regular');
   const financialYears = getFinancialYears(5);
   const [selectedFY, setSelectedFY] = useState(financialYears[0].value);
 
-  const months = getMonthsForFY(selectedFY);
-
+  const months = getMonthsForFY(selectedFY, selectedGstType);
 
   // Update filtered clients when clients or search query changes
   useEffect(() => {
@@ -208,6 +261,28 @@ const Returnfilling = () => {
   useEffect(() => {
     console.log("Filtered Clients:", filteredClients);
   }, [filteredClients]);
+
+
+
+  const isFutureFYMonth = (month, selectedFY) => {
+    const today = new Date();
+
+    // Build actual date of FY month
+    const monthDate = new Date(
+      month.year,
+      month.month - 1,
+      1
+    );
+
+    // End of current day
+    const todayDate = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      1
+    );
+
+    return monthDate > todayDate;
+  };
 
   // Simple retry mechanism with limited retries
   const fetchWithRetry = async (url, options = {}) => {
@@ -278,74 +353,93 @@ const Returnfilling = () => {
       if (!creds?.email) return;
 
       const caUserName = creds.email;
+      const timestamp = new Date().getTime(); // Add timestamp for cache busting
 
       const res = await axios.get(`${API_BASE_URL}/returns/all`, {
         params: {
           year: selectedFY,
           caUserName,
+          _: timestamp, // Add cache-busting parameter
           ...(searchQuery.trim() && { search: searchQuery.trim() }),
         },
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       });
 
       const data = res.data?.data || [];
+      console.log('Fetched clients data:', data); // Debug log
 
-      const mappedClients = data.map(item => ({
-        _id: item.client._id,
+      const mappedClients = data.map(item => {
+        // Initialize months object with proper structure
+        const months = {};
 
-        businessName: item.client.businessName || item.client.address || item.client.name,
-        phone: item.client.phone || item.client.phoneNumber,
-        email: item.client.email,
-        gstNumber: item.gstNumber,
+        // Process each month in the response
+        Object.entries(item.months || {}).forEach(([month, monthData]) => {
+          months[month] = {
+            gstr1: {
+              status: monthData?.gstr1?.status || 'not_filed',
+              fee: monthData?.gstr1?.fee || 0,
+              filedAt: monthData?.gstr1?.filedAt || null
+            },
+            gstr3b: {
+              status: monthData?.gstr3b?.status || 'not_filed',
+              fee: monthData?.gstr3b?.fee || 0,
+              filedAt: monthData?.gstr3b?.filedAt || null
+            }
+          };
+        });
 
-        gstType: (item.client.gstType || 'regular').toLowerCase(),
-
-        frequency:
-          item.client.gstType?.toLowerCase() === 'composition'
-            ? '3'
-            : item.client.frequency || '1',
-
-
-        returns: {
-          gst: {
-            [item.year]: Object.fromEntries(
-              Object.entries(item.months).map(([m, v]) => [
-                m, // 👈 KEEP STRING
-                { status: v.status }
-              ])
-            )
-
+        const client = {
+          _id: item.client?._id || item.client,
+          businessName: item.client?.businessName || 'N/A',
+          gstNumber: item.gstNumber,
+          gstType: item.client?.gstType || 'regular',
+          frequency: item.client?.frequency || '1',
+          returns: {
+            gst: {
+              [item.year]: months
+            }
           }
-        }
-      }));
+        };
 
+        console.log(`Mapped client ${client.gstNumber} (${client.gstType}):`, client); // Debug log
+        return client;
+      });
 
+      setClients(prevClients => {
+        console.log('Previous clients:', prevClients);
+        console.log('New clients:', mappedClients);
+        return mappedClients;
+      });
 
-      setClients(mappedClients);
-      setFilteredClients(mappedClients);
+      // Filter clients based on selected GST type
+      let finalClients = mappedClients;
+      if (selectedGstType !== 'all') {
+        finalClients = mappedClients.filter(client => {
+          if (selectedGstType === 'composition') {
+            return client.gstType === 'composition';
+          } else if (selectedGstType === 'regular') {
+            return client.gstType === 'regular';
+          } else if (selectedGstType === 'iff') {
+            return client.gstType === 'iff';
+          }
+          return true;
+        });
+      }
 
-
-
-
-
+      setFilteredClients(finalClients);
 
     } catch (e) {
-      console.log("Return Filing Load Error:", e);
-      Alert.alert("Error", "Failed to load Return Filing data");
+      console.error("Return Filing Load Error:", e);
+      Alert.alert("Error", "Failed to load Return Filing data. Please try again.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [searchQuery, selectedFY]);
-
-
-
-  // Handle status selection
-  const handleStatusSelect = (clientId, month, currentStatus = '') => {
-    setSelectedClient(clientId);
-    setSelectedMonth(month);
-    setSelectedStatus(currentStatus);
-    setStatusModalVisible(true);
-  };
+  }, [selectedFY, searchQuery, selectedGstType]);
 
   const handleStatusUpdate = (status) => {
     const mappedStatus = status === 'filed' ? 'filed' : 'not_filed';
@@ -372,7 +466,7 @@ const Returnfilling = () => {
   };
 
   const confirmStatusUpdate = async () => {
-    if (!selectedClient || !selectedMonth || tempStatus === undefined) {
+    if (!selectedClient || !selectedMonth || !selectedReturnType || tempStatus === undefined) {
       Alert.alert('Error', 'Missing required data for update');
       return;
     }
@@ -384,12 +478,22 @@ const Returnfilling = () => {
     }
 
     // If GST type is 'iff' and quarterly is selected, verify it's a quarter-end month
-    if (client.gstType === 'iff' && gstType === 'quarterly') {
-      const quarterEndMonths = [3, 6, 9, 12];
-      if (!quarterEndMonths.includes(selectedMonth.month)) {
-        Alert.alert('Error', 'Quarterly filing is only allowed for quarter-end months (Mar, Jun, Sep, Dec)');
-        return;
-      }
+    if (
+      client.gstType === 'iff' &&
+      gstType === 'quarterly' &&
+      ![3, 6, 9, 12].includes(selectedMonth.month)
+    ) {
+      Alert.alert('Error', 'Quarterly filing is only allowed for quarter-end months (Mar, Jun, Sep, Dec)');
+      return;
+    }
+
+    // Composition is always quarterly - verify it's a quarter-end month
+    if (
+      client.gstType === 'composition' &&
+      ![3, 6, 9, 12].includes(selectedMonth.month)
+    ) {
+      Alert.alert('Error', 'Composition filing is only allowed for quarter-end months (Mar, Jun, Sep, Dec)');
+      return;
     }
 
     setLoading(true);
@@ -410,17 +514,37 @@ const Returnfilling = () => {
               updatedClient.returns.gst[selectedMonth.year] = {};
             }
 
-            updatedClient.returns.gst[selectedMonth.year][String(selectedMonth.month)] = {
-              status: backendStatus
+            const monthKey = String(selectedMonth.month);
+            const currentData = updatedClient.returns.gst[selectedMonth.year][monthKey] || {
+              gstr1: { status: 'not_filed', fee: 0 },
+              gstr3b: { status: 'not_filed', fee: 0 }
             };
 
+            if (selectedReturnType === 'single') {
+              currentData.gstr1 = {
+                status: tempStatus,
+                fee: fee || 0
+              };
+              currentData.gstr3b = {
+                status: tempStatus,
+                fee: fee || 0
+              };
+            } else {
+              currentData[selectedReturnType] = {
+                status: tempStatus,
+                fee: fee || 0
+              };
+            }
+
+
+            updatedClient.returns.gst[selectedMonth.year][monthKey] = currentData;
 
             return updatedClient;
           }
           return c;
         });
 
-        // 🔥 IMPORTANT: sync filteredClients
+        // sync filteredClients
         setFilteredClients(updated);
 
         return updated;
@@ -433,7 +557,8 @@ const Returnfilling = () => {
         month: selectedMonth.monthName,
         monthNumber: selectedMonth.month,
         year: selectedMonth.year,
-        status: backendStatus,
+        returnType: selectedReturnType === 'single' ? 'both' : selectedReturnType,
+        status: tempStatus,
         gstNumber: client.gstNumber,
         fee: fee,
         totalOutstanding: client.totalOutstanding || 0,
@@ -444,15 +569,21 @@ const Returnfilling = () => {
         updateData.quarterlyFiling = true;
       }
 
+      // Add cache-busting parameter
+      const timestamp = new Date().getTime();
+
       // Send update to server
       const response = await axios.put(
-        `${API_BASE_URL}/returns/update-status`,
+        `${API_BASE_URL}/returns/update-status?_=${timestamp}`,
         updateData,
         {
           headers: {
             'Content-Type': 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
-            'Authorization': `Bearer ${await AsyncStorage.getItem('userToken')}`
+            'Authorization': `Bearer ${await AsyncStorage.getItem('userToken')}`,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           },
           timeout: 10000
         }
@@ -461,6 +592,9 @@ const Returnfilling = () => {
       if (!response.data.success) {
         throw new Error(response.data.message || 'Failed to update status');
       }
+
+      // Force refresh the data
+      await fetchClients();
 
       // Reset selections and close modals on success
       setSelectedStatus('');
@@ -479,109 +613,279 @@ const Returnfilling = () => {
       setLoading(false);
     }
   };
+  const handleStatusSelect = (clientId, month, returnType, currentStatus) => {
+    setSelectedClient(clientId);
+    setSelectedMonth(month);
+    setSelectedReturnType(returnType);
+    setSelectedStatus(currentStatus);
+    setStatusModalVisible(true);
+  };
+
 
   const renderStatusCell = (client, month) => {
     if (!client || !month) return null;
 
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth() + 1;
+    // Safely get month data with defaults
+    const rawMonthData = client.returns?.gst?.[month.year]?.[month.month] || {};
 
-    const isCurrentFY = selectedFY === getCurrentFY();
+    // Normalize the data structure
+    const monthData = {
+      gstr1: {
+        status: rawMonthData?.gstr1?.status ?? rawMonthData?.status ?? 'not_filed',
+        fee: rawMonthData?.gstr1?.fee ?? rawMonthData?.fee ?? 0
+      },
+      gstr3b: {
+        status: rawMonthData?.gstr3b?.status ?? rawMonthData?.status ?? 'not_filed',
+        fee: rawMonthData?.gstr3b?.fee ?? rawMonthData?.fee ?? 0
+      }
+    };
 
-    const isFutureMonth =
-      month.year > currentYear ||
-      (month.year === currentYear && month.month > currentMonth);
+    const isFutureMonth = isFutureFYMonth(month, selectedFY);
+    const quarterEndMonths = [3, 6, 9, 12]; // Mar, Jun, Sep, Dec
 
-    // ✅ ONLY current FY should show "Not Started"
-    if (isCurrentFY && isFutureMonth) {
+    // Composition specific logic - always quarterly (3 months)
+    const isComposition = client.gstType === 'composition';
+    const isIff = client.gstType === 'iff';
+    const isIffQuarterly = isIff && client.frequency === '3';
+
+    // For composition and quarterly IFF, only show active cells on quarter end months
+    const isQuarterEndMonth = quarterEndMonths.includes(parseInt(month.month));
+    const shouldShowSingleReturn = (isComposition || isIffQuarterly) && isQuarterEndMonth;
+
+    // For regular IFF (monthly), show single return every month
+    const shouldShowIffMonthly = isIff && client.frequency !== '3';
+    const isSingleReturnType = shouldShowSingleReturn || shouldShowIffMonthly;
+
+    // For composition and quarterly IFF, show disabled state for non-quarter months
+    if ((isComposition || isIffQuarterly) && !isQuarterEndMonth) {
       return (
-        <View style={styles.statusCell}>
-          <Text style={{ color: '#6B7280', fontSize: 11 }}>
-            Not Started
-          </Text>
+        <View style={styles.returnContainer}>
+          <View style={[
+            styles.returnStatus,
+            styles.returnStatusFull,
+            { opacity: 0.5 }
+          ]}>
+            <Text style={[styles.returnTypeText, styles.returnTypeTextFull]}>RETURN</Text>
+            <Text style={[styles.returnStatusText, styles.returnStatusTextFull, { color: '#9CA3AF' }]}>—</Text>
+          </View>
         </View>
       );
     }
 
-    // 🔒 IFF / Composition quarterly rule
-    if (
-      (client.gstType === 'iff' || client.gstType === 'composition') &&
-      client.frequency === '3' &&
-      ![3, 6, 9, 12].includes(month.month)
-    ) {
+
+    if (isFutureMonth) {
+      if (isSingleReturnType) {
+        return (
+          <View style={styles.returnContainer}>
+            <View
+              style={[
+                styles.returnStatus,
+                styles.returnStatusFull,
+                { opacity: 0.5 }
+              ]}
+            >
+              <Text style={[styles.returnTypeText, styles.returnTypeTextFull]}>
+                RETURN
+              </Text>
+              <Text
+                style={[
+                  styles.returnStatusText,
+                  styles.returnStatusTextFull,
+                  { color: '#6B7280' }
+                ]}
+              >
+                —
+              </Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Regular GST (GSTR-1 + GSTR-3B)
       return (
-        <View style={[styles.statusCell, { opacity: 0.5 }]}>
-          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>—</Text>
+        <View style={styles.returnContainer}>
+          <View
+            style={[
+              styles.returnStatus,
+              styles.returnStatusHalf,
+              { opacity: 0.5 }
+            ]}
+          >
+            <Text style={styles.returnTypeText}>GSTR-1</Text>
+            <Text style={[styles.returnStatusText, { color: '#6B7280' }]}>
+              —
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.returnStatus,
+              styles.returnStatusHalfLast,
+              { opacity: 0.5 }
+            ]}
+          >
+            <Text style={styles.returnTypeText}>GSTR-3B</Text>
+            <Text style={[styles.returnStatusText, { color: '#6B7280' }]}>
+              —
+            </Text>
+          </View>
         </View>
       );
     }
 
-    // 📌 DB status resolution (NO DATA = NOT FILED)
-    let backendStatus = 'not_filed';
 
-    const monthKey = String(month.month);
+    // monthData is already defined at the top with proper defaults
 
-    if (client.returns?.gst?.[month.year]?.[monthKey]) {
-      backendStatus =
-        client.returns.gst[month.year][monthKey].status || 'not_filed';
-    }
+    // MERGED STATUS FOR COMPOSITION & IFF (single return)
+    const mergedStatus =
+      monthData.gstr1.status === 'filed' &&
+        monthData.gstr3b.status === 'filed'
+        ? 'filed'
+        : 'not_filed';
 
-
-    const isFiled = backendStatus === 'filed';
-
-    const statusColor = isFiled ? '#10B981' : '#EF4444';
-    const statusLabel = isFiled ? 'Filed' : 'Not Filed';
+    // For composition and IFF (single return), use only one fee to avoid double counting
+    const mergedFee = (isComposition || isIff)
+      ? (monthData.gstr1.fee || 0) // Use gstr1 fee as the single fee for composition/IFF
+      : (monthData.gstr1.fee || 0) + (monthData.gstr3b.fee || 0); // Regular GST: sum both fees
+    const isSingleReturn = isComposition || isIff; // Composition and IFF both use single return
 
     return (
-      <TouchableOpacity
-        style={[
-          styles.statusCell,
-          {
-            backgroundColor: `${statusColor}15`,
-            borderColor: statusColor,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
-        ]}
-        onPress={() =>
-          handleStatusSelect(client._id, month, backendStatus)
-        }
-      >
-        <View
-          style={[
-            styles.radioButton,
-            {
-              borderColor: statusColor,
-              backgroundColor: isFiled ? statusColor : 'transparent',
-            },
-          ]}
-        >
-          {isFiled && (
-            <Ionicons name="checkmark" size={14} color="#fff" />
-          )}
-        </View>
+      <View style={styles.returnContainer}>
+        {isSingleReturnType ? (
+          // Single return for IFF/Composition - full height
+          <TouchableOpacity
+            style={[
+              styles.returnStatus,
+              styles.returnStatusFull,
+              {
+                borderColor: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
+                backgroundColor: `${mergedStatus === 'filed' ? '#10B981' : '#EF4444'}15`,
+              },
+            ]}
+            onPress={() =>
+              handleStatusSelect(client._id, month, 'single', mergedStatus)
+            }
 
-        <Text
-          style={{
-            fontSize: 11,
-            fontWeight: '600',
-            color: statusColor,
-          }}
-        >
-          {statusLabel}
-        </Text>
-      </TouchableOpacity>
+          >
+            <Text style={[styles.returnTypeText, styles.returnTypeTextFull]}>RETURN</Text>
+            <Text
+              style={[
+                styles.returnStatusText,
+                styles.returnStatusTextFull,
+                {
+                  color: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
+                },
+              ]}
+            >
+              {mergedStatus === 'filed' ? '✓' : '✗'}
+            </Text>
+            {mergedFee > 0 && (
+              <Text style={[styles.returnFeeText, {
+                position: 'absolute',
+                bottom: 4,
+                right: 4,
+                color: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
+              }]}>
+                ₹{mergedFee}
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          // Regular GST (GSTR-1 + GSTR-3B)
+          <>
+            <TouchableOpacity
+              style={[
+                styles.returnStatus,
+                styles.returnStatusHalf,
+                {
+                  borderColor: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444',
+                  backgroundColor: `${monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444'}15`,
+                },
+              ]}
+              onPress={() =>
+                handleStatusSelect(client._id, month, 'gstr1', monthData.gstr1.status)
+              }
+            >
+              <Text style={styles.returnTypeText}>GSTR-1</Text>
+              <Text
+                style={[
+                  styles.returnStatusText,
+                  { color: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444' },
+                ]}
+              >
+                {monthData.gstr1.status === 'filed' ? '✓' : '✗'}
+              </Text>
+              {monthData.gstr1.fee > 0 && (
+                <Text style={[
+                  styles.returnFeeText,
+                  { color: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444' }
+                ]}>
+                  ₹{monthData.gstr1.fee}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.returnStatus,
+                styles.returnStatusHalfLast,
+                {
+                  borderColor: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444',
+                  backgroundColor: `${monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444'}15`,
+                },
+              ]}
+              onPress={() =>
+                handleStatusSelect(client._id, month, 'gstr3b', monthData.gstr3b.status)
+              }
+            >
+              <Text style={styles.returnTypeText}>GSTR-3B</Text>
+              <Text
+                style={[
+                  styles.returnStatusText,
+                  { color: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444' },
+                ]}
+              >
+                {monthData.gstr3b.status === 'filed' ? '✓' : '✗'}
+              </Text>
+              {monthData.gstr3b.fee > 0 && (
+                <Text style={[
+                  styles.returnFeeText,
+                  { color: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444' }
+                ]}>
+                  ₹{monthData.gstr3b.fee}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     );
   };
-
-
 
 
   useEffect(() => {
     fetchClients();
   }, [selectedFY, searchQuery]);
 
+  // Scroll to current month when component loads or months change
+  useEffect(() => {
+    if (scrollViewRef.current && months.length > 0) {
+      // Find the current month index
+      const currentMonthIndex = months.findIndex(month => month.isCurrent);
+
+      if (currentMonthIndex !== -1) {
+        // Calculate the scroll position to center the current month
+        const monthWidth = 100; // MONTH_COLUMN_WIDTH from styles
+        const containerWidth = dimensions.width - 200; // Subtract fixed column width
+        const scrollToPosition = currentMonthIndex * monthWidth - (containerWidth / 2) + (monthWidth / 2);
+
+        // Scroll to the calculated position with a small delay to ensure layout is complete
+        setTimeout(() => {
+          scrollViewRef.current.scrollTo({ x: Math.max(0, scrollToPosition), animated: true });
+        }, 100);
+      }
+    }
+  }, [months, dimensions]);
 
 
   const onRefresh = async () => {
@@ -590,7 +894,12 @@ const Returnfilling = () => {
     setRefreshing(false);
   };
 
-
+  // Auto-reload functionality
+  useAutoReload(fetchClients, {
+    interval: 30000, // 30 seconds
+    reloadOnFocus: true,
+    enableInterval: false // Set to true if you want periodic reloads
+  });
 
   // Render loading state
   if (loading) {
@@ -601,288 +910,360 @@ const Returnfilling = () => {
     );
   }
 
-
   return (
-  <SafeAreaView style={styles.container}>
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1 }}
-      keyboardShouldPersistTaps="handled"
-    >
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
 
-      {/* Financial Year */}
-      <View style={{ marginHorizontal: 16, marginTop: 12 }}>
-        <Text style={{ fontSize: 13, color: '#374151', marginBottom: 6 }}>
-          Financial Year
-        </Text>
+        {/* Financial Year */}
+        <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+          <Text style={{ fontSize: 13, color: '#374151', marginBottom: 6 }}>
+            Financial Year
+          </Text>
 
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: '#E5E7EB',
-            borderRadius: 8,
-            paddingHorizontal: 12,
-          }}
-        >
-       <Picker
-  selectedValue={selectedFY}
-  onValueChange={(value) => setSelectedFY(value)}
-  style={{ color: '#111827' }}   // 👈 ADD THIS
->
-
-            {financialYears.map((fy) => (
-              <Picker.Item
-                key={fy.value}
-                label={fy.label}
-                value={fy.value}
-              />
-            ))}
-          </Picker>
-        </View>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#6B7280" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search clients..."
-          placeholderTextColor="#9CA3AF"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      {/* Status Grid */}
-      <View style={styles.statusSection}>
-        <View style={styles.gridContainer}>
-
-          {/* Fixed Column */}
-          <View style={styles.fixedColumn}>
-            <View style={styles.headerCell}>
-              <Text style={styles.headerText}>Business Name</Text>
-            </View>
-
-            <FlatList
-              data={filteredClients}
-              scrollEnabled={false}
-              keyExtractor={(item) => item._id}
-              renderItem={({ item }) => (
-                <View style={styles.clientNameCell}>
-                  <Text style={styles.clientNameText} numberOfLines={1}>
-                    {item.businessName || 'Unnamed Business'}
-                  </Text>
-                  <Text style={styles.gstTypeText}>
-                    {formatGstTypeLabel(item)}
-                  </Text>
-                </View>
-              )}
-            />
-          </View>
-
-          {/* Horizontal Months */}
-          <ScrollView
-            horizontal
-            ref={scrollViewRef}
-            style={styles.scrollableSection}
-            showsHorizontalScrollIndicator
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: '#E5E7EB',
+              borderRadius: 8,
+              paddingHorizontal: 12,
+            }}
           >
-            <View>
+            <Picker
+              selectedValue={selectedFY}
+              onValueChange={(value) => setSelectedFY(value)}
+              style={{ color: '#111827' }}
+            >
 
-              {/* Month Header */}
-              <View style={styles.headerRow}>
-                {months.map((month) => (
-                  <View key={month.key} style={styles.monthHeaderCell}>
-                    <Text style={styles.monthHeaderText}>
-                      {month.displayName}
-                    </Text>
-                    <Text style={styles.monthYearText}>
-                      {month.fullYear}
-                    </Text>
-                  </View>
-                ))}
+              {financialYears.map((fy) => (
+                <Picker.Item
+                  key={fy.value}
+                  label={fy.label}
+                  value={fy.value}
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+
+        {/* Search */}
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#6B7280" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search clients..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        {/* Status Grid */}
+        <View style={styles.statusSection}>
+          <View style={styles.gridContainer}>
+
+            {/* Fixed Column */}
+            <View style={styles.fixedColumn}>
+              <View style={styles.headerCell}>
+                <Text style={styles.headerText}>Business Name</Text>
               </View>
 
-              {/* Client Rows */}
               <FlatList
                 data={filteredClients}
                 scrollEnabled={false}
                 keyExtractor={(item) => item._id}
                 renderItem={({ item }) => (
-                  <View style={styles.clientRow}>
-                    {months.map((month) => (
-                      <View key={`${item._id}-${month.key}`}>
-                        {renderStatusCell(item, month)}
-                      </View>
-                    ))}
+                  <View style={styles.clientNameCell}>
+                    <Text style={styles.clientNameText} numberOfLines={1}>
+                      {item.businessName || 'Unnamed Business'}
+                    </Text>
+                    <Text style={styles.gstTypeText}>
+                      {formatGstTypeLabel(item)}
+                    </Text>
                   </View>
                 )}
               />
-
             </View>
-          </ScrollView>
-        </View>
-      </View>
 
-     {/* Status Update Modal */}
-      
-      <Modal
-  visible={statusModalVisible}
-  transparent
-  animationType="slide"
-  onRequestClose={() => setStatusModalVisible(false)}
->
-  <View style={styles.modalOverlay}>
-    <View style={styles.statusModalContainer}>
+            {/* Horizontal Months */}
+            <ScrollView
+              horizontal
+              ref={scrollViewRef}
+              style={styles.scrollableSection}
+              showsHorizontalScrollIndicator
+            >
+              <View>
 
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 }}
-      >
+                {/* Month Header */}
+                <View style={styles.headerRow}>
+                  {months.map((month) => (
+                    <View key={month.key} style={styles.monthHeaderCell}>
+                      <Text style={styles.monthHeaderText}>
+                        {month.displayName}
+                      </Text>
+                      <Text style={styles.monthYearText}>
+                        {month.fullYear}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
 
-        {/* Header */}
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Update Return Status</Text>
-          <TouchableOpacity
-            onPress={() => setStatusModalVisible(false)}
-            style={styles.modalCloseButton}
-          >
-            <Ionicons name="close" size={22} />
-          </TouchableOpacity>
-        </View>
+                {/* Client Rows */}
+                <FlatList
+                  data={filteredClients}
+                  scrollEnabled={false}
+                  keyExtractor={(item) => item._id}
+                  renderItem={({ item }) => (
+                    <View style={styles.clientRow}>
+                      {months.map((month) => (
+                        <View key={`${item._id}-${month.key}`}>
+                          {renderStatusCell(item, month)}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                />
 
-        {/* Client + Month Info */}
-        <View style={styles.modalInfoContainer}>
-          <Text style={styles.modalInfoText}>
-            <Text style={styles.modalInfoLabel}>Client: </Text>
-            {clients.find(c => c._id === selectedClient)?.businessName || '—'}
-          </Text>
-          <Text style={styles.modalInfoText}>
-            <Text style={styles.modalInfoLabel}>Month: </Text>
-            {selectedMonth
-              ? `${selectedMonth.displayName} ${selectedMonth.fullYear}`
-              : '—'}
-          </Text>
-        </View>
-
-        {/* Status Options */}
-        {STATUS_OPTIONS.map(option => (
-          <TouchableOpacity
-            key={option.id}
-            style={[
-              styles.statusOption,
-              selectedStatus === option.id && {
-                borderColor: option.color,
-                backgroundColor: `${option.color}15`,
-              },
-            ]}
-            onPress={() => setSelectedStatus(option.id)}
-          >
-            <Ionicons name={option.icon} size={20} color={option.color} />
-            <Text style={styles.statusOptionText}>{option.label}</Text>
-          </TouchableOpacity>
-        ))}
-
-        {/* Footer */}
-        <View style={styles.modalFooter}>
-          <TouchableOpacity
-            style={[styles.modalButton, styles.cancelButton]}
-            onPress={() => setStatusModalVisible(false)}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.modalButton, styles.submitButton]}
-            disabled={!selectedStatus}
-            onPress={() => handleStatusUpdate(selectedStatus)}
-          >
-            <Text style={styles.submitButtonText}>Update</Text>
-          </TouchableOpacity>
-        </View>
-
-      </ScrollView>
-    </View>
-  </View>
-</Modal>
-
-
-
-      {/* Confirmation Dialog */}
-    <Modal
-  visible={showConfirmation}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setShowConfirmation(false)}
->
-  <View style={styles.modalOverlay}>
-    <View style={styles.confirmationContainer}>
-
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 }}
-      >
-
-        <Text style={styles.confirmationTitle}>
-          Confirm Status Update
-        </Text>
-
-        {/* GST Type */}
-        {clients.find(c => c._id === selectedClient)?.gstType === 'iff' && (
-          <View style={styles.gstTypeContainer}>
-            ...
+              </View>
+            </ScrollView>
           </View>
-        )}
-
-        {/* Fee */}
-        <View style={styles.confirmationDetailRow}>
-          <Ionicons name="cash" size={18} />
-          <TextInput
-            value={String(fee)}
-            keyboardType="numeric"
-            onChangeText={(v) => setFee(Number(v))}
-            style={styles.feeInput}
-          />
         </View>
 
-        <Text style={styles.confirmationText}>
-          Are you sure you want to update this return status?
-        </Text>
+        {/* Status Update Modal */}
 
-        <View style={styles.confirmationButtons}>
-          <TouchableOpacity
-            style={[styles.confirmButton, styles.cancelButton]}
-            onPress={() => setShowConfirmation(false)}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
+        <Modal
+          visible={statusModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setStatusModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.statusModalContainer}>
 
-          <TouchableOpacity
-            style={[styles.confirmButton, styles.submitButton]}
-            onPress={confirmStatusUpdate}
-          >
-            <Text style={styles.submitButtonText}>Confirm</Text>
-          </TouchableOpacity>
-        </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 24 }}
+              >
+
+                {/* Header */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Update Return Status</Text>
+                  <TouchableOpacity
+                    onPress={() => setStatusModalVisible(false)}
+                    style={styles.modalCloseButton}
+                  >
+                    <Ionicons name="close" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Client + Month Info */}
+                <View style={styles.modalInfoContainer}>
+                  <Text style={styles.modalInfoText}>
+                    <Text style={styles.modalInfoLabel}>Client: </Text>
+                    {clients.find(c => c._id === selectedClient)?.businessName || '—'}
+                  </Text>
+                  <Text style={styles.modalInfoText}>
+                    <Text style={styles.modalInfoLabel}>Month: </Text>
+                    {selectedMonth
+                      ? `${selectedMonth.displayName} ${selectedMonth.fullYear}`
+                      : '—'}
+                  </Text>
+                </View>
+
+                {/* Status Options */}
+                {STATUS_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={[
+                      styles.statusOption,
+                      selectedStatus === option.id && {
+                        borderColor: option.color,
+                        backgroundColor: `${option.color}15`,
+                      },
+                    ]}
+                    onPress={() => setSelectedStatus(option.id)}
+                  >
+                    <Ionicons name={option.icon} size={20} color={option.color} />
+                    <Text style={styles.statusOptionText}>{option.label}</Text>
+                  </TouchableOpacity>
+                ))}
+
+                {/* Footer */}
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => setStatusModalVisible(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.submitButton]}
+                    disabled={!selectedStatus}
+                    onPress={() => handleStatusUpdate(selectedStatus)}
+                  >
+                    <Text style={styles.submitButtonText}>Update</Text>
+                  </TouchableOpacity>
+                </View>
+
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+
+
+        {/* Confirmation Dialog */}
+        <Modal
+          visible={showConfirmation}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowConfirmation(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.confirmationContainer}>
+
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 24 }}
+              >
+
+                <Text style={styles.confirmationTitle}>
+                  Confirm Status Update
+                </Text>
+
+                {/* GST Type */}
+                {clients.find(c => c._id === selectedClient)?.gstType === 'iff' && (
+                  <View style={styles.gstTypeContainer}>
+                    <Text>Select GST Type</Text>
+                  </View>
+
+                )}
+
+                {/* Fee */}
+                <View style={styles.confirmationDetailRow}>
+                  <Ionicons name="cash" size={18} />
+                  <TextInput
+                    value={String(fee)}
+                    keyboardType="numeric"
+                    onChangeText={(v) => setFee(Number(v))}
+                    style={styles.feeInput}
+                  />
+                </View>
+
+                <Text style={styles.confirmationText}>
+                  Are you sure you want to update this return status?
+                </Text>
+
+                <View style={styles.confirmationButtons}>
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.cancelButton]}
+                    onPress={() => setShowConfirmation(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.submitButton]}
+                    onPress={confirmStatusUpdate}
+                  >
+                    <Text style={styles.submitButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
 
       </ScrollView>
-    </View>
-  </View>
-</Modal>
-
-
-    </ScrollView>
-  </SafeAreaView>
-);
-
+    </SafeAreaView>
+  );
 };
+
+const MONTH_COLUMN_WIDTH = 100;
+const ROW_HEIGHT = 80;
+
 const styles = StyleSheet.create({
+
   // Layout
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  // Return status components
+  returnContainer: {
+    width: MONTH_COLUMN_WIDTH,
+    padding: 1,
+    height: ROW_HEIGHT - 2,
+    justifyContent: 'flex-start',
+    alignSelf: 'stretch',
+  },
+  // Base style for return status (used by all return types)
+  returnStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    borderRadius: 4,
+    borderWidth: 1,
+    height: '100%',
+  },
+  // Style for IFF/Composition (full height)
+  returnStatusFull: {
+    height: '100%',
+    paddingVertical: (ROW_HEIGHT - 30) / 2,
+  },
+  // Style for regular GST returns (half height)
+  returnStatusHalf: {
+    height: '48%',
+    marginBottom: '2%',
+    paddingVertical: 4,
+  },
+  // Last child of regular GST returns (no bottom margin)
+  returnStatusHalfLast: {
+    height: '48%',
+    marginBottom: 0,
+    paddingVertical: 4,
+  },
+  returnTypeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    flex: 1,
+  },
+  returnStatusText: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginLeft: 4,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  // For IFF/Composition (slightly larger text for better visibility)
+  returnTypeTextFull: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  returnStatusTextFull: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  returnFeeText: {
+    fontSize: 10,
+    color: '#4B5563',
+    marginTop: 2,
   },
 
   // Search Section
@@ -971,11 +1352,11 @@ const styles = StyleSheet.create({
   },
 
   // Status Grid
-statusSection: {
- flex: 1,
- flexGrow: 1,
-  backgroundColor: '#FFFFFF',
-},
+  statusSection: {
+    flex: 1,
+    flexGrow: 1,
+    backgroundColor: '#FFFFFF',
+  },
 
 
   // Header Row
@@ -983,12 +1364,12 @@ statusSection: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#73767aff',
     minHeight: 60,
   },
   headerCell: {
     width: '100%',
-    padding: 16,
+    padding: 21,
     justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -1003,8 +1384,9 @@ statusSection: {
 
   // Month Headers
   monthHeaderCell: {
-    width: 100,
-    padding: 8,
+    width: MONTH_COLUMN_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FAFC',
@@ -1034,9 +1416,10 @@ statusSection: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    minHeight: 70,
+    height: ROW_HEIGHT,
     backgroundColor: '#FFFFFF',
   },
+
   statusCell: {
     width: 100,
     padding: 6,
@@ -1044,17 +1427,17 @@ statusSection: {
     justifyContent: 'center',
     borderRightWidth: 1,
     borderRightColor: '#E5E7EB',
-    minHeight: 60,
+    minHeight: 80,
   },
 
   clientNameCell: {
     width: '100%',
-    padding: 16,
+    height: ROW_HEIGHT,
+    paddingHorizontal: 12,
     justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
     backgroundColor: '#FAFBFC',
-    minHeight: 70,
   },
   clientNameText: {
     fontSize: 14,
@@ -1120,30 +1503,30 @@ statusSection: {
     color: '#1F2937',
     fontFamily: 'System',
   },
-statusModalContainer: {
-  width: '90%',
-  padding: 10,
-  maxHeight: '100%',
-  backgroundColor: '#FFF',
-  borderRadius: 16,
-},
+  statusModalContainer: {
+    width: '90%',
+    padding: 10,
+    maxHeight: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+  },
 
-confirmationContainer: {
-  width: '92%',
-  padding: 10,
-  maxHeight: '100%',
-  backgroundColor: '#FFF',
-  borderRadius: 16,
-},
+  confirmationContainer: {
+    width: '92%',
+    padding: 10,
+    maxHeight: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+  },
 
-feeInput: {
-  borderWidth: 1,
-  borderColor: '#D1D5DB',
-  borderRadius: 6,
-  paddingHorizontal: 10,
-  height: 36,
-  width: 120,
-},
+  feeInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    height: 36,
+    width: 120,
+  },
 
   // Modal Styles
   modalOverlay: {
@@ -1420,15 +1803,5 @@ feeInput: {
     fontWeight: '600',
   },
 
-  cancelButtonText: {
-    color: '#4B5563',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
 });
 export default Returnfilling;

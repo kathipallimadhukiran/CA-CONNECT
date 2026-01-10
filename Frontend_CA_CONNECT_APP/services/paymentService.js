@@ -14,11 +14,7 @@ const createOutstandingPayment = async (clientId, amount, description) => {
 const getPaymentHistory = async (clientId, limit = 10, page = 1) => {
   try {
     const endpoint = `/payments/client/${clientId}/history?limit=${limit}&page=${page}`;
-    console.log('Fetching payment history for client:', clientId);
-    console.log('Using endpoint:', endpoint);
-    console.log('Full URL will be:', API_BASE_URL + endpoint);
     const res = await api.get(endpoint);
-    console.log('Payment history response:', res.data);
     return res.data;
   } catch (error) {
     console.error('Error fetching payment history:', error);

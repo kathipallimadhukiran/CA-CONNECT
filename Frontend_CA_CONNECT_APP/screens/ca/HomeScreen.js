@@ -14,7 +14,7 @@ import {
   Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LineChart } from 'react-native-chart-kit';
+import { LineChart, PieChart } from 'react-native-chart-kit';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { authService } from '../../services/auth';
@@ -315,6 +315,38 @@ const HomeScreen = () => {
   };
 
 
+  const buildPaidDuePie = () => {
+    let totalPaid = 0;
+    let totalDue = 0;
+
+    clients.forEach(client => {
+      totalPaid += Number(client.totalPaid || 0);
+      totalDue += Number(client.totalOutstanding || 0);
+    });
+
+    // Prevent empty chart crash
+    if (totalPaid === 0 && totalDue === 0) {
+      totalDue = 1;
+    }
+
+    return [
+      {
+        name: 'Paid',
+        amount: totalPaid,
+        color: '#10B981', // green
+        legendFontColor: '#374151',
+        legendFontSize: 12,
+      },
+      {
+        name: 'Due',
+        amount: totalDue,
+        color: '#EF4444', // red
+        legendFontColor: '#374151',
+        legendFontSize: 12,
+      },
+    ];
+  };
+
   const chartData = buildMonthlyChart();
 
   // Quick Actions with semantic colors/icons
@@ -436,6 +468,7 @@ const HomeScreen = () => {
         </View>
 
 
+
         {/* Earnings Chart */}
         <View style={styles.chartContainer}>
           <Text style={styles.sectionTitle}>Earnings per Month</Text>
@@ -473,25 +506,36 @@ const HomeScreen = () => {
           />
         </View>
 
-        {/* Quick Actions */}
-        <View style={styles.quickActionsContainer}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionButtons}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.id}
-                style={[styles.actionButton, { backgroundColor: action.color }]}
-                onPress={action.onPress}
-                activeOpacity={0.85}
-              >
-                <View style={styles.actionIcon}>{action.icon}</View>
-                <Text style={styles.actionButtonText}>{action.title}</Text>
-              </TouchableOpacity>
-            ))}
+        {/* Paid vs Due Pie Chart */}
+        <View style={styles.chartContainer}>
+          <Text style={styles.sectionTitle}>Paid vs Due</Text>
+
+        <PieChart
+  data={buildPaidDuePie()}
+  width={screenWidth - 80}
+  height={200}
+  chartConfig={{
+    color: () => '#000',
+  }}
+  accessor="amount"
+  backgroundColor="transparent"
+  paddingLeft="0"
+  center={[screenWidth / 4 - 20, 0]}   // ✅ TRUE CENTER FIX
+  absolute
+  hasLegend={false}
+/>
 
 
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+            <Text style={{ color: '#10B981', fontWeight: '600' }}>
+              Paid: ₹{clients.reduce((s, c) => s + Number(c.totalPaid || 0), 0).toLocaleString()}
+            </Text>
+            <Text style={{ color: '#EF4444', fontWeight: '600' }}>
+              Due: ₹{clients.reduce((s, c) => s + Number(c.totalOutstanding || 0), 0).toLocaleString()}
+            </Text>
           </View>
         </View>
+
 
         {/* Statistics */}
         <View style={styles.statsContainer}>

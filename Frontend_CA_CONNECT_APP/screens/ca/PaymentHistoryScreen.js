@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,21 +14,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import paymentService from '../../services/paymentService';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const PaymentHistoryScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const { clientId, clientName } = route.params || {};
-  
+
   const [payments, setPayments] = useState([]);
   const [filteredPayments, setFilteredPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [summary, setSummary] = useState({});
-  
+
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
@@ -36,7 +37,7 @@ const PaymentHistoryScreen = () => {
   const [selectedMethod, setSelectedMethod] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
-  
+
   // Sort states
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -45,6 +46,25 @@ const PaymentHistoryScreen = () => {
   const [markPaidModal, setMarkPaidModal] = useState(false);
   const [transactionId, setTransactionId] = useState('');
   const [notes, setNotes] = useState('');
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
+      // 🔥 Force refresh payment data on focus
+      setPayments([]);            // force reset
+      setLoading(true);           // show loading
+      fetchPaymentHistory();       // fetch fresh
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
   useEffect(() => {
     navigation.setOptions({
@@ -66,8 +86,8 @@ const PaymentHistoryScreen = () => {
     try {
       setLoading(true);
       const data = await paymentService.getPaymentHistory(clientId);
-      setPayments(data.payments);
-      setSummary(data.summary);
+      setPayments([...data.payments]); // 🔥 clone to force re-render
+      setSummary({ ...data.summary });   // 🔥 clone summary
     } catch (error) {
       Alert.alert('Error', 'Failed to fetch payment history');
     } finally {
@@ -80,7 +100,7 @@ const PaymentHistoryScreen = () => {
 
     // Search filter
     if (searchQuery) {
-      filtered = filtered.filter(payment => 
+      filtered = filtered.filter(payment =>
         payment.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         payment.amount.toString().includes(searchQuery)
       );
@@ -112,7 +132,7 @@ const PaymentHistoryScreen = () => {
     // Apply sorting
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortBy) {
         case 'date':
           comparison = new Date(a.createdAt) - new Date(b.createdAt);
@@ -129,11 +149,11 @@ const PaymentHistoryScreen = () => {
         default:
           comparison = 0;
       }
-      
+
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-    setFilteredPayments(filtered);
+    setFilteredPayments([...filtered]); // 🔥 clone to force re-render
   };
 
   const getMonthOptions = () => {
@@ -159,13 +179,13 @@ const PaymentHistoryScreen = () => {
     const totalAdded = filteredPayments
       .filter(p => p.type === 'outstanding')
       .reduce((sum, p) => sum + p.amount, 0);
-    
+
     const totalPaid = filteredPayments
       .filter(p => p.status === 'completed')
       .reduce((sum, p) => sum + p.amount, 0);
-    
+
     const balance = totalAdded - totalPaid;
-    
+
     return { totalAdded, totalPaid, balance };
   };
 
@@ -177,7 +197,7 @@ const PaymentHistoryScreen = () => {
 
   const handleMarkAsPaid = async () => {
     if (!selectedPayment) return;
-    
+
     try {
       await paymentService.markPaymentAsPaid(selectedPayment._id, transactionId, notes);
       Alert.alert('Success', 'Payment marked as paid successfully');
@@ -202,9 +222,9 @@ const PaymentHistoryScreen = () => {
     } else if (date.toDateString() === yesterday.toDateString()) {
       return `Yesterday, ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
     } else {
-      return date.toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: 'short', 
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
@@ -240,10 +260,10 @@ const PaymentHistoryScreen = () => {
 
   const renderPaymentItem = ({ item }) => {
     const displayInfo = getPaymentTypeDisplay(item);
-    
+
     return (
-      <TouchableOpacity 
-        style={styles.paymentItem} 
+      <TouchableOpacity
+        style={styles.paymentItem}
         onPress={() => item.status === 'pending' && setSelectedPayment(item)}
       >
         <View style={styles.paymentHeader}>
@@ -296,13 +316,13 @@ const PaymentHistoryScreen = () => {
             </TouchableOpacity>
           ) : null}
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.filterButton}
           onPress={() => setShowFilterModal(true)}
         >
           <Ionicons name="filter-outline" size={20} color="#2563EB" />
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.sortButton}
           onPress={() => setShowSortModal(true)}
         >
@@ -314,7 +334,7 @@ const PaymentHistoryScreen = () => {
       {/* Payment Summary */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>
-          {searchQuery || selectedMonth !== 'all' || selectedType !== 'all' || selectedMethod !== 'all' 
+          {searchQuery || selectedMonth !== 'all' || selectedType !== 'all' || selectedMethod !== 'all'
             ? 'Filtered Summary' : 'Payment Summary'}
         </Text>
         <View style={styles.summaryRow}>
@@ -337,7 +357,7 @@ const PaymentHistoryScreen = () => {
             </Text>
           </View>
         </View>
-        
+
         {/* Additional Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
@@ -392,7 +412,7 @@ const PaymentHistoryScreen = () => {
                 <Ionicons name="close" size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.modalContent}>
               {/* Month Filter */}
               <View style={styles.sectionContainer}>
@@ -547,7 +567,7 @@ const PaymentHistoryScreen = () => {
                 <Ionicons name="close" size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.modalContent}>
               {/* Sort By */}
               <View style={styles.sectionContainer}>
@@ -578,81 +598,81 @@ const PaymentHistoryScreen = () => {
                   </TouchableOpacity>
                 ))}
               </View>
-              
+
               {/* Sort Order */}
               {/* Sort Order */}
-<View style={styles.sectionContainer}>
-  <Text style={styles.sectionTitle}>Order</Text>
+              <View style={styles.sectionContainer}>
+                <Text style={styles.sectionTitle}>Order</Text>
 
-  {sortBy === 'date' && (
-    <>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('desc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
-          Newest First
-        </Text>
-        {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('asc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
-          Oldest First
-        </Text>
-        {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-    </>
-  )}
+                {sortBy === 'date' && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('desc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
+                        Newest First
+                      </Text>
+                      {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('asc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
+                        Oldest First
+                      </Text>
+                      {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                  </>
+                )}
 
-  {sortBy === 'amount' && (
-    <>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('desc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
-          High to Low
-        </Text>
-        {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('asc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
-          Low to High
-        </Text>
-        {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-    </>
-  )}
+                {sortBy === 'amount' && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('desc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
+                        High to Low
+                      </Text>
+                      {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('asc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
+                        Low to High
+                      </Text>
+                      {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                  </>
+                )}
 
-  {(sortBy === 'type' || sortBy === 'method') && (
-    <>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('asc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
-          cash 
-        </Text>
-        {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
-        onPress={() => setSortOrder('desc')}
-      >
-        <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
-          online
-        </Text>
-        {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
-      </TouchableOpacity>
-    </>
-  )}
-</View>
+                {(sortBy === 'type' || sortBy === 'method') && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'asc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('asc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'asc' && styles.optionTextActive]}>
+                        cash
+                      </Text>
+                      {sortOrder === 'asc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.optionItem, sortOrder === 'desc' && styles.optionItemActive]}
+                      onPress={() => setSortOrder('desc')}
+                    >
+                      <Text style={[styles.optionText, sortOrder === 'desc' && styles.optionTextActive]}>
+                        online
+                      </Text>
+                      {sortOrder === 'desc' && <Ionicons name="checkmark" size={20} color="#2563EB" />}
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
 
             </ScrollView>
 
@@ -687,7 +707,7 @@ const PaymentHistoryScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Mark Payment as Paid</Text>
-            
+
             {selectedPayment && (
               <View style={styles.paymentPreview}>
                 <Text style={styles.previewAmount}>
@@ -722,7 +742,7 @@ const PaymentHistoryScreen = () => {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.modalButton, styles.confirmButton]}
                 onPress={handleMarkAsPaid}
@@ -1007,7 +1027,7 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   modalContainer: {
-    width:'80%',
+    width: '80%',
     backgroundColor: '#fff',
     borderRadius: 16,
     margin: 20,

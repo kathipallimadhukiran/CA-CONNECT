@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Frontend_CA_CONNECT_APP",
-    "slug": "Frontend_CA_CONNECT_APP",
+    "name": "CA Connect",
+    "slug": "ca-connect",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -10,12 +10,12 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0B3C5D"
     },
     "ios": {
       "supportsTablet": true,
       "requireFullScreen": false,
-      "bundleIdentifier": "noi",
+      "bundleIdentifier": "com.caconnect.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -24,10 +24,10 @@
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0B3C5D"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.madhukiranyt.Frontend_CA_CONNECT_APP"
+      "package": "com.caconnect.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"

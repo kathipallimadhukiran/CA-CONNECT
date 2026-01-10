@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,9 +14,16 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../../config';
+import * as ScreenOrientation from 'expo-screen-orientation';
+
+// Reusable guard function for enterprise-grade validation
+const hasOutstandingBalance = (client) => {
+  const outstanding = client?.totalOutstanding || 0;
+  return outstanding > 0;
+};
 
 const EditClientScreen = () => {
   const navigation = useNavigation();
@@ -25,6 +32,8 @@ const EditClientScreen = () => {
 
   const [loading, setLoading] = useState(!clientData);
   const [saving, setSaving] = useState(false);
+  const [originalData, setOriginalData] = useState(null);
+  const [currentClientData, setCurrentClientData] = useState(null); // Store fresh client data with outstanding balance
   // Split name into firstName and lastName if it exists, otherwise use empty strings
   const initialName = clientData?.name || '';
   const [formData, setFormData] = useState({
@@ -37,7 +46,43 @@ const EditClientScreen = () => {
     panNumber: clientData?.panNumber || '',
     gstType: clientData?.gstType || 'Regular',
     address: clientData?.address || '',
+    isActive: clientData?.isActive !== false, // Default to true if undefined
   });
+
+  // Set originalData when clientData is available from navigation params
+  useEffect(() => {
+    if (clientData) {
+      setOriginalData({
+        firstName: clientData?.firstName || '',
+        lastName: clientData?.lastName || '',
+        email: clientData?.email || '',
+        phone: (clientData?.phone || clientData?.phoneNumber || '').toString(),
+        businessName: clientData?.businessName || '',
+        gstNumber: clientData?.gstNumber || '',
+        panNumber: clientData?.panNumber || '',
+        gstType: clientData?.gstType || 'Regular',
+        address: clientData?.address || '',
+        isActive: clientData?.isActive !== false,
+      });
+    }
+  }, [clientData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
+      // 🔥 Force refresh form data on focus
+      setFormData({ ...formData }); // force re-render
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
   // Fetch client details if not passed in params
   useEffect(() => {
@@ -61,19 +106,39 @@ const EditClientScreen = () => {
 
         const data = await response.json();
 
+        // Store the fresh client data with outstanding balance
+        setCurrentClientData(data);
+
         // Split the name into first and last name
         const nameParts = data.name ? data.name.split(' ') : [];
 
         setFormData({
-          firstName: data.firstName || (nameParts[0] || ''),
-          lastName: data.lastName || (nameParts.slice(1).join(' ') || ''),
+          ...{
+            firstName: data.firstName || (nameParts[0] || ''),
+            lastName: data.lastName || (nameParts.slice(1).join(' ') || ''),
+            email: data.email || '',
+            phone: data.phone || data.phoneNumber || '',
+            businessName: data.businessName || '',
+            gstNumber: data.gstNumber || '',
+            panNumber: data.panNumber || '',
+            gstType: data.gstType || 'Regular',
+            address: data.address || '',
+            isActive: data.isActive !== false, // Default to true if undefined
+          }
+        });
+
+        // Store original data for change detection
+        setOriginalData({
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
           email: data.email || '',
-          phone: data.phone || data.phoneNumber || '',
+          phone: (data.phone || data.phoneNumber || '').toString(),
           businessName: data.businessName || '',
           gstNumber: data.gstNumber || '',
           panNumber: data.panNumber || '',
           gstType: data.gstType || 'Regular',
           address: data.address || '',
+          isActive: data.isActive !== false,
         });
       } catch (error) {
         console.error('Error fetching client details:', error);
@@ -114,10 +179,78 @@ const EditClientScreen = () => {
     setFormData({ ...formData, phone: cleaned, formattedPhone: formatted });
   };
 
+  // Enterprise-grade change detection
+  const hasChanges = () => {
+    if (!originalData) return true;
+
+    return (
+      originalData.firstName !== formData.firstName.trim() ||
+      originalData.lastName !== formData.lastName.trim() ||
+      originalData.email !== formData.email.trim() ||
+      originalData.phone !== formData.phone.replace(/\D/g, '') ||
+      originalData.businessName !== formData.businessName.trim() ||
+      originalData.gstNumber !== formData.gstNumber.trim() ||
+      originalData.panNumber !== formData.panNumber.trim() ||
+      originalData.gstType !== formData.gstType ||
+      originalData.address !== formData.address.trim() ||
+      originalData.isActive !== formData.isActive
+    );
+  };
+
   const handleUpdate = async () => {
     if (!formData.firstName || !formData.phone) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
+    }
+
+    // Check if any changes were made
+    if (!hasChanges()) {
+      Alert.alert(
+        'No Changes',
+        'No changes were made to the client details.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+      return;
+    }
+
+    // If trying to deactivate, fetch fresh client data to check current outstanding balance
+    if (!formData.isActive) {
+      try {
+        const token = await AsyncStorage.getItem('userToken');
+        const response = await fetch(`${API_BASE_URL}/clients/${clientId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const freshData = await response.json();
+          setCurrentClientData(freshData);
+
+          console.log('Fresh client data for validation:', freshData);
+          console.log('Outstanding balance:', freshData.totalOutstanding);
+
+          // Check with fresh data
+          if (hasOutstandingBalance(freshData)) {
+            Alert.alert(
+              'Cannot Deactivate Client',
+              `This client has outstanding balance of ₹${freshData.totalOutstanding || 0}. Please clear all outstanding amounts before deactivating.`,
+              [{ text: 'OK' }]
+            );
+            return;
+          } else {
+            console.log('No outstanding balance, allowing deactivation');
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching fresh client data:', error);
+      }
     }
 
     try {
@@ -140,6 +273,7 @@ const EditClientScreen = () => {
           panNumber: formData.panNumber.trim(),
           gstType: formData.gstType,
           address: formData.address.trim(),
+          isActive: formData.isActive,
         }),
 
       });
@@ -281,6 +415,49 @@ const EditClientScreen = () => {
               numberOfLines={3}
             />
           </View>
+
+          <View style={styles.formGroup}>
+            <View style={styles.switchContainer}>
+              <Text style={styles.label}>Client Status</Text>
+              <TouchableOpacity
+                style={[
+                  styles.switch,
+                  formData.isActive ? styles.switchActive : styles.switchInactive
+                ]}
+                onPress={() => {
+                  const clientToCheck = currentClientData || clientData;
+                  if (formData.isActive && hasOutstandingBalance(clientToCheck)) {
+                    Alert.alert(
+                      'Cannot Deactivate Client',
+                      `This client has outstanding balance of ₹${clientToCheck?.totalOutstanding || 0}. Please clear all outstanding amounts before deactivating.`,
+                      [{ text: 'OK' }]
+                    );
+                    return;
+                  }
+
+                  setFormData({ ...formData, isActive: !formData.isActive });
+                }}
+              >
+                <View
+                  style={[
+                    styles.switchThumb,
+                    formData.isActive ? styles.switchThumbActive : styles.switchThumbInactive
+                  ]}
+                />
+              </TouchableOpacity>
+            </View>
+            <Text style={[
+              styles.statusDescription,
+              { color: formData.isActive ? '#10B981' : '#EF4444' }
+            ]}>
+              {formData.isActive ? 'Active - Client is visible and can be managed' : 'Inactive - Client is hidden from general views'}
+            </Text>
+            {hasOutstandingBalance(currentClientData || clientData) && (
+              <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>
+                Outstanding Balance: ₹{(currentClientData || clientData)?.totalOutstanding || 0} - Deactivation disabled
+              </Text>
+            )}
+          </View>
         </ScrollView>
 
         <View style={styles.buttonContainer}>
@@ -292,9 +469,9 @@ const EditClientScreen = () => {
             <Text style={styles.buttonText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.button, styles.saveButton, saving && styles.disabledButton]}
+            style={[styles.button, styles.saveButton, (saving || !hasChanges()) && styles.disabledButton]}
             onPress={handleUpdate}
-            disabled={saving}
+            disabled={saving || !hasChanges()}
           >
             {saving ? (
               <ActivityIndicator color="#fff" />
@@ -395,6 +572,47 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  switch: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  switchActive: {
+    backgroundColor: '#10B981',
+  },
+  switchInactive: {
+    backgroundColor: '#D1D5DB',
+  },
+  switchThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  switchThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  switchThumbInactive: {
+    alignSelf: 'flex-start',
+  },
+  statusDescription: {
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });
 

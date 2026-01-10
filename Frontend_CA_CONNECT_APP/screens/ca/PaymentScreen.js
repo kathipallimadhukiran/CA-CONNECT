@@ -56,6 +56,25 @@ const PaymentScreen = () => {
         ScreenOrientation.OrientationLock.PORTRAIT_UP
       );
 
+      // 🔥 Force refresh payment data on focus
+      setPayments([]);            // force reset
+      setLoading(true);           // show loading
+      fetchCAPayments();         // fetch fresh
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
       return () => {
         // 🔓 Unlock when leaving the screen (optional)
         ScreenOrientation.unlockAsync();
@@ -110,7 +129,7 @@ const PaymentScreen = () => {
         return clientMatch && dateMatch;
       });
 
-      setPayments(filteredPayments);
+      setPayments([...filteredPayments]); // 🔥 clone to force re-render
 
       let outstandingAdded = 0;
       let outstandingPaid = 0;
@@ -131,10 +150,12 @@ const PaymentScreen = () => {
       const balance = outstandingAdded - (outstandingPaid + manualPaid);
 
       setStats({
-        totalAmount: outstandingAdded,
-        received: outstandingPaid + manualPaid,
-        pending: balance < 0 ? 0 : balance
-      });
+        ...{
+          totalAmount: outstandingAdded,
+          received: outstandingPaid + manualPaid,
+          pending: balance < 0 ? 0 : balance
+        }
+      }); // 🔥 clone to force re-render
 
     } catch (err) {
       setError(err.message);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,10 +13,11 @@ import {
   ActivityIndicator,
   SafeAreaView
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/auth';
 import { useAuth } from '../App';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
@@ -24,6 +25,24 @@ const LoginScreen = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
+      // 🔥 Force refresh form state on focus
+      setEmail(email);
+      setPassword(password);
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
   const { updateAuthState } = useAuth();
 

@@ -42,6 +42,7 @@ const ClientDetailsScreen = () => {
   const [token, setToken] = useState('');
   const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [isPaymentAuthenticated, setIsPaymentAuthenticated] = useState(false);
 
   // Function to navigate to edit client screen
   const navigateToEditClient = useCallback(() => {
@@ -72,6 +73,11 @@ const ClientDetailsScreen = () => {
       ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT_UP
       );
+
+      // 🔥 Force refresh client data on focus
+      setClient(null);            // force reset
+      setLoading(true);           // show loading
+      fetchClientDetails();       // fetch fresh
 
       return () => {
         // 🔓 Unlock when leaving the screen (optional)
@@ -156,7 +162,7 @@ const ClientDetailsScreen = () => {
         panNumber: clientData.panNumber || 'N/A',
         email: clientData.email || 'N/A',
         gstType: clientData.gstType || 'N/A',
-        address: clientData.address || 'N/A'
+        address: clientData.address || ''
       };
 
       // Try to fetch payment history, but don't fail if it doesn't exist
@@ -168,8 +174,8 @@ const ClientDetailsScreen = () => {
         // Continue without payment data
       }
 
-      setClient(formattedClient);
-      setRecentPayments(paymentData.payments || []);
+      setClient({ ...formattedClient }); // 🔥 CRITICAL - clone to force re-render
+      setRecentPayments([...(paymentData.payments || [])]); // 🔥 clone payments
     } catch (error) {
       console.error('Error in fetchClientDetails:', error);
       Alert.alert("Error", error.message || "Failed to fetch client details.");
@@ -198,6 +204,12 @@ const ClientDetailsScreen = () => {
       headerShown: true, // 🔥 force header even if parent hides it
     });
   }, [navigation]);
+
+  // Debug confirmation (ADD THIS TEMP)
+  useEffect(() => {
+    console.log('Client updated:', client?.name || 'null');
+    console.log('Payments updated:', recentPayments.length);
+  }, [client, recentPayments]);
 
   // Fetch token on component mount
   useEffect(() => {
@@ -246,14 +258,26 @@ const ClientDetailsScreen = () => {
 
     try {
       setLoading(true);
-      // First verify biometrics
+
+      // Authenticate only when submitting payment
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        Alert.alert(
+          'Authentication Error',
+          'No biometric authentication is set up on this device.'
+        );
+        return;
+      }
+
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Verify your identity to record payment',
-        fallbackLabel: 'Enter Passcode',
+        promptMessage: 'Authenticate to record payment',
+        fallbackLabel: 'Enter device PIN',
       });
 
       if (result.success) {
-        // Process the payment
+        // Process payment after successful authentication
         await paymentService.recordManualPayment({
           clientId,
           amount: parseFloat(manualAmount),
@@ -265,14 +289,14 @@ const ClientDetailsScreen = () => {
         // Refresh client data
         await fetchClientDetails();
 
-        // Reset form
+        // Reset form and close modal
         setManualAmount('');
         setManualNote('');
         setShowManualPaymentModal(false);
 
         Alert.alert('Success', 'Payment recorded successfully');
       } else {
-        Alert.alert('Authentication Failed', 'You must authenticate to record a payment');
+        Alert.alert('Authentication Failed', 'Could not authenticate.');
       }
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -281,7 +305,6 @@ const ClientDetailsScreen = () => {
       setLoading(false);
     }
   };
-
 
   // Handle call
   const handleCall = () => {
@@ -296,25 +319,19 @@ const ClientDetailsScreen = () => {
   };
 
   // Handle mark as paid
+  // Handle mark as paid - NO authentication check, always open modal
   const handleMarkAsPaid = async () => {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    if (!hasHardware || !isEnrolled) {
-      Alert.alert('Authentication Error', 'No biometric authentication is set up on this device.');
-      return;
-    }
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Authenticate to mark as paid',
-      fallbackLabel: 'Enter device PIN',
-    });
-    if (result.success) {
-      setShowManualPaymentModal(true);
-      setManualAmount('');
-      setManualDate('');
-      setManualNote('');
-    } else {
-      Alert.alert('Authentication Failed', 'Could not authenticate.');
-    }
+    // Always open payment modal directly
+    setShowManualPaymentModal(true);
+    setManualAmount('');
+    setManualDate('');
+    setManualNote('');
+  };
+
+  // Close manual payment modal and reset authentication
+  const closeManualPaymentModal = () => {
+    setShowManualPaymentModal(false);
+    setIsPaymentAuthenticated(false); // 🔐 reset authentication
   };
 
   // Format date
@@ -574,7 +591,7 @@ const ClientDetailsScreen = () => {
       {/* Manual Payment Modal */}
       <ManualPaymentModal
         isVisible={showManualPaymentModal}
-        onClose={() => setShowManualPaymentModal(false)}
+        onClose={closeManualPaymentModal}
         manualAmount={manualAmount}
         setManualAmount={setManualAmount}
         paymentMethod={paymentMethod}

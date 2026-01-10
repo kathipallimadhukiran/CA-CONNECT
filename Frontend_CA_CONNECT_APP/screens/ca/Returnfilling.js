@@ -368,6 +368,7 @@ const Returnfilling = () => {
         params: {
           year: selectedFY,
           caUserName,
+          isActive: true, // Only fetch active clients
           _: timestamp, // Add cache-busting parameter
           ...(searchQuery.trim() && { search: searchQuery.trim() }),
         },

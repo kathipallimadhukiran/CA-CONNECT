@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
   SafeAreaView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { authService } from '../services/auth';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
@@ -25,6 +26,23 @@ const RegisterScreen = () => {
     confirmPassword: '',
     qualification: ''
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      // 🔒 Lock to portrait when screen is focused
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+
+      // 🔥 Force refresh form state on focus
+      setFormData({ ...formData }); // force re-render
+
+      return () => {
+        // 🔓 Unlock when leaving the screen (optional)
+        ScreenOrientation.unlockAsync();
+      };
+    }, [])
+  );
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -81,16 +99,16 @@ const RegisterScreen = () => {
       };
 
       console.log('Attempting to register CA with data:', userData);
-      
+
       const response = await authService.register(userData);
       console.log('Registration response:', response);
-      
+
       if (response.success) {
         Alert.alert(
           'Success',
           'Registration successful! Please login with your credentials.',
-          [{ 
-            text: 'OK', 
+          [{
+            text: 'OK',
             onPress: () => navigation.navigate('Login')
           }]
         );
@@ -108,13 +126,13 @@ const RegisterScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
@@ -124,108 +142,108 @@ const RegisterScreen = () => {
           <View style={{ width: 40 }} />
         </View>
 
-      <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Full Name <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.name}
-            onChangeText={(value) => handleInputChange('name', value)}
-            placeholder="Enter your full name"
-            autoCapitalize="words"
-          />
-        </View>
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Full Name <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.name}
+              onChangeText={(value) => handleInputChange('name', value)}
+              placeholder="Enter your full name"
+              autoCapitalize="words"
+            />
+          </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Email Address <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.email}
-            onChangeText={(value) => handleInputChange('email', value)}
-            placeholder="Enter email address"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Email Address <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.email}
+              onChangeText={(value) => handleInputChange('email', value)}
+              placeholder="Enter email address"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Phone Number <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.phoneNumber}
-            onChangeText={(value) => handleInputChange('phoneNumber', value)}
-            placeholder="Enter 10-digit phone number"
-            keyboardType="phone-pad"
-            maxLength={10}
-          />
-        </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Phone Number <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.phoneNumber}
+              onChangeText={(value) => handleInputChange('phoneNumber', value)}
+              placeholder="Enter 10-digit phone number"
+              keyboardType="phone-pad"
+              maxLength={10}
+            />
+          </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Professional Qualification <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.qualification}
-            onChangeText={(value) => handleInputChange('qualification', value)}
-            placeholder="e.g., CA, CPA, ACCA"
-          />
-        </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Professional Qualification <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.qualification}
+              onChangeText={(value) => handleInputChange('qualification', value)}
+              placeholder="e.g., CA, CPA, ACCA"
+            />
+          </View>
 
-        {/* Password */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Password <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.password}
-            onChangeText={(value) => handleInputChange('password', value)}
-            placeholder="Enter password (min 6 characters)"
-            secureTextEntry
-          />
-        </View>
+          {/* Password */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Password <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.password}
+              onChangeText={(value) => handleInputChange('password', value)}
+              placeholder="Enter password (min 6 characters)"
+              secureTextEntry
+            />
+          </View>
 
-        {/* Confirm Password */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Confirm Password <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={formData.confirmPassword}
-            onChangeText={(value) => handleInputChange('confirmPassword', value)}
-            placeholder="Confirm your password"
-            secureTextEntry
-          />
-        </View>
+          {/* Confirm Password */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Confirm Password <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={formData.confirmPassword}
+              onChangeText={(value) => handleInputChange('confirmPassword', value)}
+              placeholder="Confirm your password"
+              secureTextEntry
+            />
+          </View>
 
-        <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="white" size="small" />
-          ) : (
-            <Text style={styles.submitButtonText}>Create Account</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.loginLink}>
-          <Text style={styles.loginText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.loginLinkText}>Login here</Text>
+          <TouchableOpacity
+            style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Text style={styles.submitButtonText}>Create Account</Text>
+            )}
           </TouchableOpacity>
+
+          <View style={styles.loginLink}>
+            <Text style={styles.loginText}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Text style={styles.loginLinkText}>Login here</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
       </ScrollView>
     </SafeAreaView>
   );

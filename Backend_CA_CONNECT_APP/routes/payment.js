@@ -1,5 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const Payment = require('../models/Payment');
 const Task = require('../models/Task');
 const CA = require('../models/CA');
@@ -391,6 +392,364 @@ router.get('/test', (req, res) => {
     message: 'Payment routes are working',
     timestamp: new Date().toISOString()
   });
+});
+
+// @route   GET /monthly-aggregation
+// @desc    Get payment aggregation per month for all clients (including inactive)
+// @access  Public
+// Full path: /api/payments/monthly-aggregation
+router.get('/monthly-aggregation', async (req, res) => {
+  try {
+    const { year, clientId, caEmail } = req.query;
+
+    // Build match stage
+    let matchStage = {};
+
+    // 🔥 CA FILTER (CRITICAL)
+    if (caEmail) {
+      const clients = await Client.find({ caUserName: caEmail }).select('_id');
+      const clientIds = clients.map(c => c._id);
+      matchStage.clientId = { $in: clientIds };
+    }
+
+    // Filter by specific year if provided
+    if (year) {
+      const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
+      const endDate = new Date(`${year}-12-31T23:59:59.999Z`);
+      matchStage.createdAt = { $gte: startDate, $lte: endDate };
+    }
+
+    // Filter by specific client if provided
+    if (clientId) {
+      matchStage.clientId = mongoose.Types.ObjectId(clientId);
+    }
+
+    const monthlyAggregation = await Payment.aggregate([
+      {
+        $match: matchStage
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" }
+          },
+          earnedAmount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, "$amount", 0]
+            }
+          },
+          totalDue: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$type", "outstanding"] },
+                    { $eq: ["$status", "pending"] }
+                  ]
+                },
+                "$amount",
+                0
+              ]
+            }
+          },
+          totalPaid: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, "$amount", 0]
+            }
+          },
+          totalAmount: { $sum: "$amount" },
+          totalPayments: {
+            $sum: {
+              $cond: [{ $ne: ["$type", "outstanding"] }, 1, 0]
+            }
+          },
+          completedPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, 1, 0]
+            }
+          },
+          pendingPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "pending"] }, 1, 0]
+            }
+          },
+          outstandingPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "outstanding"] }, 1, 0]
+            }
+          },
+          manualPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "manual"] }, 1, 0]
+            }
+          },
+          regularPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "regular"] }, 1, 0]
+            }
+          },
+          averagePaymentAmount: { $avg: "$amount" },
+          maxPaymentAmount: { $max: "$amount" },
+          minPaymentAmount: { $min: "$amount" }
+        }
+      },
+      {
+        $sort: { "_id.year": -1, "_id.month": -1 }
+      },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          monthName: {
+            $arrayElemAt: [
+              ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+              "$_id.month"
+            ]
+          },
+          pendingAmount: "$totalDue",
+          totalDue: 1,
+          totalPaid: 1,
+          totalAmount: 1,
+          totalPayments: 1,
+          completedPayments: 1,
+          pendingPayments: 1,
+          outstandingPayments: 1,
+          manualPayments: 1,
+          regularPayments: 1,
+          averagePaymentAmount: { $round: ["$averagePaymentAmount", 2] },
+          maxPaymentAmount: 1,
+          minPaymentAmount: 1,
+          completionRate: {
+            $cond: [
+              { $eq: ["$completedPayments", 0] },
+              0,
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ["$completedPayments", "$totalPayments"] },
+                      100
+                    ]
+                  },
+                  2
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]);
+
+    // Get overall summary
+    const overallSummary = await Payment.aggregate([
+      {
+        $match: matchStage
+      },
+      {
+        $group: {
+          _id: null,
+          earnedAmount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, "$amount", 0]
+            }
+          },
+          totalDue: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$type", "outstanding"] },
+                    { $eq: ["$status", "pending"] }
+                  ]
+                },
+                "$amount",
+                0
+              ]
+            }
+          },
+          totalPaid: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, "$amount", 0]
+            }
+          },
+          totalAmount: { $sum: "$amount" },
+          totalPayments: {
+            $sum: {
+              $cond: [{ $ne: ["$type", "outstanding"] }, 1, 0]
+            }
+          },
+          completedPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, 1, 0]
+            }
+          },
+          pendingPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "pending"] }, 1, 0]
+            }
+          }
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        monthlyAggregation,
+        summary: overallSummary[0] ? {
+          ...overallSummary[0],
+          pendingAmount: overallSummary[0].totalDue
+        } : {
+          earnedAmount: 0,
+          totalDue: 0,
+          totalPaid: 0,
+          pendingAmount: 0,
+          totalAmount: 0,
+          totalPayments: 0,
+          completedPayments: 0,
+          pendingPayments: 0,
+          outstandingPayments: 0,
+          manualPayments: 0,
+          regularPayments: 0,
+          averagePaymentAmount: 0,
+          maxPaymentAmount: 0,
+          minPaymentAmount: 0,
+          completionRate: 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Monthly aggregation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching monthly payment aggregation'
+    });
+  }
+});
+
+// @route   GET /client/:clientId/monthly-payments
+// @desc    Get monthly payment history for a specific client (including if inactive)
+// @access  Public
+// Full path: /api/payments/client/:clientId/monthly-payments
+router.get('/client/:clientId/monthly-payments', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { year } = req.query;
+
+    // Validate client exists (but don't filter by active status)
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: 'Client not found' });
+    }
+
+    // Build match stage
+    let matchStage = { clientId: mongoose.Types.ObjectId(clientId) };
+
+    // Filter by specific year if provided
+    if (year) {
+      const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
+      const endDate = new Date(`${year}-12-31T23:59:59.999Z`);
+      matchStage.createdAt = { $gte: startDate, $lte: endDate };
+    }
+
+    const monthlyPayments = await Payment.aggregate([
+      {
+        $match: matchStage
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" }
+          },
+          payments: {
+            $push: {
+              _id: "$_id",
+              amount: "$amount",
+              status: "$status",
+              type: "$type",
+              paymentMethod: "$paymentMethod",
+              description: "$description",
+              dueDate: "$dueDate",
+              paidAt: "$paidAt",
+              createdAt: "$createdAt",
+              transactionId: "$transactionId",
+              notes: "$notes"
+            }
+          },
+          totalAmount: { $sum: "$amount" },
+          totalPayments: { $sum: 1 },
+          completedPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "completed"] }, 1, 0]
+            }
+          },
+          pendingPayments: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "pending"] }, 1, 0]
+            }
+          }
+        }
+      },
+      {
+        $sort: { "_id.year": -1, "_id.month": -1 }
+      },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          monthName: {
+            $arrayElemAt: [
+              ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+              "$_id.month"
+            ]
+          },
+          payments: 1,
+          totalAmount: 1,
+          totalPayments: 1,
+          completedPayments: 1,
+          pendingPayments: 1,
+          completionRate: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: ["$completedPayments", "$totalPayments"] },
+                  100
+                ]
+              },
+              2
+            ]
+          }
+        }
+      }
+    ]);
+
+    // Get client info
+    const clientInfo = {
+      _id: client._id,
+      name: `${client.firstName} ${client.lastName}`,
+      email: client.email,
+      businessName: client.businessName,
+      isActive: client.isActive
+    };
+
+    res.json({
+      success: true,
+      client: clientInfo,
+      data: monthlyPayments
+    });
+
+  } catch (error) {
+    console.error('Client monthly payments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching client monthly payments'
+    });
+  }
 });
 
 module.exports = router;

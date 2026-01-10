@@ -100,13 +100,18 @@ router.put('/:id/update-balance', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const { page = 1, limit = 50, search = '', caUserName } = req.query;
+  const { page = 1, limit = 50, search = '', caUserName, isActive } = req.query;
 
   try {
     let matchQuery = {};
 
     if (caUserName) {
       matchQuery.caUserName = caUserName;
+    }
+
+    // Add isActive filter if specified
+    if (isActive !== undefined) {
+      matchQuery.isActive = isActive === 'true';
     }
 
     if (search) {
@@ -140,6 +145,7 @@ router.get('/', async (req, res) => {
           gstType: c.gstType,
           gstNumber: c.gstNumber,
           panNumber: c.panNumber,
+          isActive: c.isActive,
           totalAdded: summary.totalAdded,
           totalPaid: summary.totalPaid,
           totalOutstanding: summary.totalOutstanding
@@ -187,10 +193,37 @@ router.put('/:id', async (req, res) => {
   try {
     const { defaultFee, ...updateData } = req.body;
 
-    // If defaultFee is provided, ensure it's a number
-    if (defaultFee !== undefined) {
-      updateData.defaultFee = Number(defaultFee) || 0;
+    // Backend enforcement: Block deactivation if client has outstanding amounts
+    if (updateData.isActive === false) {
+      console.log('Attempting to deactivate client:', req.params.id);
+
+      const client = await Client.findById(req.params.id);
+      if (!client) {
+        return res.status(404).json({ message: 'Client not found.' });
+      }
+
+      // Get current payment summary to check outstanding balance
+      const getPaymentSummary = require('../utils/paymentSummary');
+      const summary = await getPaymentSummary(client._id);
+
+      console.log('Payment summary for client:', summary);
+
+      if (summary.totalOutstanding > 0) {
+        console.log('Blocking deactivation due to outstanding balance:', summary.totalOutstanding);
+        return res.status(400).json({
+          message: `Cannot deactivate client. Outstanding balance of ₹${summary.totalOutstanding} must be cleared first.`
+        });
+      } else {
+        console.log('No outstanding balance, allowing deactivation');
+      }
     }
+
+    // If defaultFee is provided, ensure it's a number
+    if (updateData.defaultFee !== undefined) {
+      updateData.defaultFee = Number(updateData.defaultFee) || 0;
+    }
+
+    console.log('Update data being sent to database:', updateData);
 
     const updatedClient = await Client.findByIdAndUpdate(
       req.params.id,
@@ -202,6 +235,8 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Client not found.' });
     }
 
+    console.log('Updated client result:', updatedClient);
+
     res.json({
       message: 'Client updated successfully.',
       client: updatedClient
@@ -209,6 +244,70 @@ router.put('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error updating client:', error);
     res.status(500).json({ message: 'Server error while updating client.' });
+  }
+});
+
+// @route   GET /api/clients/check-duplicate
+// @desc    Check if a client field value already exists
+// @access  Public
+router.get('/check-duplicate', async (req, res) => {
+  try {
+    const { field, value, caUserName } = req.query;
+
+    if (!field || !value || !caUserName) {
+      return res.status(400).json({ exists: false });
+    }
+
+    let query = { caUserName };
+
+    // Normalize value
+    const normalized = value.trim();
+
+    switch (field) {
+      case 'businessName':
+      case 'email':
+      case 'firstName':
+      case 'lastName':
+        query[field] = { $regex: `^${normalized}$`, $options: 'i' };
+        break;
+
+      case 'phone':
+      case 'whatsappNumber':
+        query.$or = [
+          { phone: normalized },
+          { whatsappNumber: normalized }
+        ];
+        break;
+
+      case 'gstNumber':
+      case 'panNumber':
+        query[field] = normalized.toUpperCase();
+        break;
+
+      case 'fullName': {
+        const [firstName, lastName] = normalized.split(' ');
+        if (firstName && lastName) {
+          query.firstName = { $regex: `^${firstName}$`, $options: 'i' };
+          query.lastName = { $regex: `^${lastName}$`, $options: 'i' };
+        } else {
+          query.firstName = { $regex: `^${normalized}$`, $options: 'i' };
+        }
+        break;
+      }
+
+      default:
+        return res.json({ exists: false });
+    }
+
+    const exists = await Client.exists(query);
+
+    console.log(`Duplicate check - Field: ${field}, Value: ${value}, Query:`, query, 'Exists:', !!exists);
+
+    return res.json({ exists: !!exists });
+
+  } catch (error) {
+    console.error('Duplicate check error:', error);
+    return res.status(500).json({ exists: false });
   }
 });
 
@@ -248,6 +347,7 @@ router.get('/:id', async (req, res) => {
       gstType: client.gstType,
       gstNumber: client.gstNumber,
       panNumber: client.panNumber,
+      isActive: client.isActive,
       totalAdded: summary.totalAdded,
       totalPaid: summary.totalPaid,
       totalOutstanding: summary.totalOutstanding,

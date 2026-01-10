@@ -1,4 +1,4 @@
-package com.madhukiranyt.Frontend_CA_CONNECT_APP
+package com.caconnect.app
 
 import android.os.Build
 import android.os.Bundle

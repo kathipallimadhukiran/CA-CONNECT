@@ -30,4 +30,12 @@ const clientSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// 🔐 DATABASE INDEXES FOR DUPLICATE PREVENTION
+clientSchema.index({ businessName: 1, caUserName: 1 }, { unique: true });
+clientSchema.index({ email: 1, caUserName: 1 }, { unique: true });
+clientSchema.index({ phone: 1, caUserName: 1 }, { unique: true });
+clientSchema.index({ whatsappNumber: 1, caUserName: 1 }, { unique: true });
+clientSchema.index({ gstNumber: 1, caUserName: 1 }, { unique: true, sparse: true });
+clientSchema.index({ panNumber: 1, caUserName: 1 }, { unique: true, sparse: true });
+
 module.exports = mongoose.model('Client', clientSchema);

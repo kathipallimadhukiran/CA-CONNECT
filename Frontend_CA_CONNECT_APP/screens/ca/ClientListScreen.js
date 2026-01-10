@@ -32,6 +32,8 @@ const STATUS_ICONS = {
 
 const FILTER_OPTIONS = [
   { id: 'all', label: 'All Clients', icon: 'people' },
+  { id: 'active', label: 'Active Clients', icon: 'person' },
+  { id: 'inactive', label: 'Inactive Clients', icon: 'person-outline' },
   { id: 'gst-regular', label: 'Regular GST', icon: 'card' },
   { id: 'gst-composite', label: 'Composite GST', icon: 'calculator' },
   { id: 'gst-iff', label: 'IFF GST', icon: 'receipt' },
@@ -71,7 +73,7 @@ const ClientListScreen = () => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [selectedFilter, setSelectedFilter] = useState('active');
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -83,7 +85,10 @@ const ClientListScreen = () => {
           page: 1,
           limit: 50,
           caUserName: email,   // 👈 IMPORTANT
-          ...(search.trim() && { search: search.trim() })
+          ...(selectedFilter === 'inactive' && { isActive: 'false' }), // Only add isActive filter for inactive
+          ...(selectedFilter === 'active' && { isActive: 'true' }), // Only add isActive filter for active
+          // For 'all' and GST filters, don't specify isActive to get all clients
+          ...(search.trim() && selectedFilter !== 'inactive' && { search: search.trim() }) // Don't search when viewing inactive
         },
       });
 
@@ -94,7 +99,7 @@ const ClientListScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, selectedFilter]);
   useFocusEffect(
     useCallback(() => {
       fetchClients();
@@ -118,6 +123,13 @@ const ClientListScreen = () => {
   useEffect(() => {
     let filtered = [...clients];
 
+    // Apply active/inactive filter for 'all' and GST filters (since server returns all clients)
+    if (selectedFilter === 'active') {
+      filtered = filtered.filter(client => client.isActive !== false);
+    } else if (selectedFilter === 'inactive') {
+      filtered = filtered.filter(client => client.isActive === false);
+    }
+
     // Apply search filter (case-insensitive)
     if (search.trim()) {
       const searchTerm = search.trim().toLowerCase();
@@ -129,7 +141,7 @@ const ClientListScreen = () => {
     }
 
     // Apply GST type filter
-    if (selectedFilter !== 'all' && selectedFilter.startsWith('gst-')) {
+    if (selectedFilter !== 'all' && selectedFilter !== 'active' && selectedFilter !== 'inactive' && selectedFilter.startsWith('gst-')) {
       const gstType = selectedFilter.replace('gst-', '').toLowerCase();
 
       filtered = filtered.filter(client => {
@@ -150,9 +162,6 @@ const ClientListScreen = () => {
         return true;
       });
     }
-
-
-
 
     setFilteredClients(filtered);
   }, [clients, selectedFilter, search]);
@@ -181,7 +190,20 @@ const ClientListScreen = () => {
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <View>
-            <Text style={styles.clientName}>{item.name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.clientName}>{item.name}</Text>
+              <View style={[
+                styles.statusBadge,
+                { backgroundColor: item.isActive === false ? '#EF4444' : '#10B981' }
+              ]}>
+                <Text style={[
+                  styles.statusTextBadge,
+                  { color: 'white' }
+                ]}>
+                  {item.isActive === false ? 'Inactive' : 'Active'}
+                </Text>
+              </View>
+            </View>
             <Text style={styles.clientAddress}>{item.address}</Text>
             <Text style={styles.businessType}>{item.businessType}</Text>
           </View>
@@ -477,6 +499,8 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#EF4444', fontSize: 16, fontWeight: '500' },
   gstTypeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginRight: 8 },
   gstTypeText: { fontSize: 10, color: '#fff', fontWeight: '600' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 8 },
+  statusTextBadge: { fontSize: 10, fontWeight: '600' },
 });
 
 export default ClientListScreen;

@@ -90,15 +90,21 @@ router.get('/all', async (req, res) => {
       month,
       status,
       search,
-      caUserName
+      caUserName,
+      isActive
     } = req.query;
 
-    // Get all clients (not just active ones)
+    // Get all clients with optional isActive filter
     const clientQuery = {};
 
     // Add caUserName filter if provided
     if (caUserName) {
       clientQuery.caUserName = caUserName;
+    }
+
+    // Add isActive filter if specified
+    if (isActive !== undefined) {
+      clientQuery.isActive = isActive === 'true';
     }
 
     if (search) {

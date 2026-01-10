@@ -87,9 +87,7 @@ const ClientListScreen = () => {
         },
       });
 
-      console.log('Clients API Response:', JSON.stringify(res.data.clients, null, 2));
       const clientsData = res.data.clients || [];
-      console.log('First client totalOutstanding:', clientsData[0]?.totalOutstanding, 'type:', typeof clientsData[0]?.totalOutstanding);
       setClients(clientsData);
     } catch (e) {
       console.error("Error fetching clients:", e?.response?.data?.message || e.message);
@@ -173,7 +171,6 @@ const ClientListScreen = () => {
   });
 
   const renderClient = ({ item }) => {
-    console.log('Rendering client:', item.name, 'totalOutstanding:', item.totalOutstanding, 'type:', typeof item.totalOutstanding);
     const status = getStatus(item.pendingFiles);
     const { icon, color, label } = STATUS_ICONS[status];
 

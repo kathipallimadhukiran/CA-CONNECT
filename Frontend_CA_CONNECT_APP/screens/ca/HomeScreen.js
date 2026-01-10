@@ -255,7 +255,6 @@ const HomeScreen = () => {
     const currentYear = new Date().getFullYear();
 
     if (!clients || clients.length === 0) {
-      console.log('No clients data available');
       return {
         labels: monthNames,
         datasets: [{ data: new Array(12).fill(0) }]
@@ -264,24 +263,17 @@ const HomeScreen = () => {
 
     const monthlyTotals = new Array(12).fill(0);
 
-    console.log('Building chart with clients:', clients.length);
-    console.log('Sample client data:', clients[0]);
-
     // Calculate earnings from all clients' payment history for current year
     clients.forEach((client, index) => {
-      console.log(`Client ${index}: ${client.name}, payments:`, client.payments);
 
       if (client.payments && client.payments.length > 0) {
         client.payments.forEach((payment, paymentIndex) => {
           const paymentDate = new Date(payment.createdAt || payment.date);
-          console.log(`Payment ${paymentIndex}:`, payment);
 
           // Only include payments from current year
           if (paymentDate.getFullYear() === currentYear) {
             const month = paymentDate.getMonth();
             const amount = Number(payment.amount) || 0;
-
-            console.log(`Adding ₹${amount} to month ${month} (${monthNames[month]})`);
 
             // Only count completed payments (not outstanding)
             if (payment.status === 'completed' || payment.type === 'manual') {
@@ -294,7 +286,6 @@ const HomeScreen = () => {
       // Also check totalPaid as fallback
       const totalPaid = Number(client.totalPaid) || 0;
       if (totalPaid > 0 && (!client.payments || client.payments.length === 0)) {
-        console.log(`Using totalPaid fallback for ${client.name}: ₹${totalPaid}`);
         // Distribute totalPaid across months where client was created
         const createdDate = new Date(client.createdAt || Date.now());
         if (createdDate.getFullYear() === currentYear) {
@@ -303,8 +294,6 @@ const HomeScreen = () => {
         }
       }
     });
-
-    console.log('Final monthly totals:', monthlyTotals);
 
     // Don't distribute outstanding amounts - only show actual payments
     // This will show real monthly earnings, not projections

@@ -258,30 +258,39 @@ const Returnfilling = () => {
       )
     });
   }, [navigation]);
-  useEffect(() => {
-    console.log("Filtered Clients:", filteredClients);
-  }, [filteredClients]);
 
 
 
   const isFutureFYMonth = (month, selectedFY) => {
     const today = new Date();
 
-    // Build actual date of FY month
-    const monthDate = new Date(
-      month.year,
-      month.month - 1,
-      1
-    );
+    // Get current month and year
+    const currentMonth = today.getMonth() + 1; // JavaScript months are 0-based
+    const currentYear = today.getFullYear();
 
-    // End of current day
-    const todayDate = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      1
-    );
+    // Handle financial year properly
+    let selectedMonthYear = month.year;
+    let selectedMonthNum = month.month;
 
-    return monthDate > todayDate;
+    // For months Jan-Mar, they belong to next year in financial year context
+    if (selectedMonthNum <= 3) {
+      // If it's Jan-Mar and we're comparing with current year, check if it's actually next year
+      if (selectedMonthYear === currentYear) {
+        // This means it's next year's Jan-Mar compared to current year
+        return true; // Future month
+      }
+    }
+
+    // Check if selected month is current month or future
+    if (selectedMonthYear > currentYear) {
+      return true;
+    }
+
+    if (selectedMonthYear === currentYear && selectedMonthNum >= currentMonth) {
+      return true;
+    }
+
+    return false;
   };
 
   // Simple retry mechanism with limited retries
@@ -370,7 +379,6 @@ const Returnfilling = () => {
       });
 
       const data = res.data?.data || [];
-      console.log('Fetched clients data:', data); // Debug log
 
       const mappedClients = data.map(item => {
         // Initialize months object with proper structure
@@ -405,13 +413,10 @@ const Returnfilling = () => {
           }
         };
 
-        console.log(`Mapped client ${client.gstNumber} (${client.gstType}):`, client); // Debug log
         return client;
       });
 
       setClients(prevClients => {
-        console.log('Previous clients:', prevClients);
-        console.log('New clients:', mappedClients);
         return mappedClients;
       });
 
@@ -474,6 +479,12 @@ const Returnfilling = () => {
     const client = clients.find(c => c._id === selectedClient);
     if (!client) {
       Alert.alert('Error', 'Client not found');
+      return;
+    }
+
+    // Check if the selected month is in the future or current month
+    if (isFutureFYMonth(selectedMonth, selectedFY)) {
+      Alert.alert('Error', 'Returns can only be filed for past months. Current and future months are disabled.');
       return;
     }
 
@@ -881,7 +892,15 @@ const Returnfilling = () => {
 
         // Scroll to the calculated position with a small delay to ensure layout is complete
         setTimeout(() => {
-          scrollViewRef.current.scrollTo({ x: Math.max(0, scrollToPosition), animated: true });
+          try {
+            // Double-check the ref is still available before scrolling
+            if (scrollViewRef.current && scrollViewRef.current.scrollTo) {
+              scrollViewRef.current.scrollTo({ x: Math.max(0, scrollToPosition), animated: true });
+            }
+          } catch (error) {
+            console.log('Scroll error:', error);
+            // Silently handle the error - the app will continue to work
+          }
         }, 100);
       }
     }

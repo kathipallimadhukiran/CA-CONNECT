@@ -235,18 +235,17 @@ const AddClientScreen = () => {
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
-    console.log('Form data:', formData);
     setLoading(true);
     try {
       // Prepare the data to be sent
-    const clientData = {
-  ...formData,
-  frequency:
-    formData.gstType === 'IFF'
-      ? formData.frequency
-      : '1',
-  defaultFee: Number(formData.defaultFee)
-};
+      const clientData = {
+        ...formData,
+        frequency:
+          formData.gstType === 'IFF'
+            ? formData.frequency
+            : '1',
+        defaultFee: Number(formData.defaultFee)
+      };
 
 
       const response = await fetch(`${API_BASE_URL}/clients/add`, {
@@ -423,45 +422,45 @@ const AddClientScreen = () => {
             </View>
 
             {/* Filing Frequency Selection (only shown for IFF GST type) */}
-           {formData.gstType === 'IFF' && (
-  <View style={styles.filingFrequencyContainer}>
-    <Text style={styles.label}>Filing Frequency</Text>
+            {formData.gstType === 'IFF' && (
+              <View style={styles.filingFrequencyContainer}>
+                <Text style={styles.label}>Filing Frequency</Text>
 
-    <View style={styles.radioGroup}>
-      {/* Monthly */}
-      <TouchableOpacity
-        style={styles.radioButton}
-        onPress={() => handleInputChange('frequency', '1')}
-      >
-        <View
-          style={[
-            styles.radioOuter,
-            formData.frequency === '1' && styles.radioOuterSelected
-          ]}
-        >
-          {formData.frequency === '1' && <View style={styles.radioInner} />}
-        </View>
-        <Text style={styles.radioLabel}>Monthly</Text>
-      </TouchableOpacity>
+                <View style={styles.radioGroup}>
+                  {/* Monthly */}
+                  <TouchableOpacity
+                    style={styles.radioButton}
+                    onPress={() => handleInputChange('frequency', '1')}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        formData.frequency === '1' && styles.radioOuterSelected
+                      ]}
+                    >
+                      {formData.frequency === '1' && <View style={styles.radioInner} />}
+                    </View>
+                    <Text style={styles.radioLabel}>Monthly</Text>
+                  </TouchableOpacity>
 
-      {/* Quarterly */}
-      <TouchableOpacity
-        style={styles.radioButton}
-        onPress={() => handleInputChange('frequency', '3')}
-      >
-        <View
-          style={[
-            styles.radioOuter,
-            formData.frequency === '3' && styles.radioOuterSelected
-          ]}
-        >
-          {formData.frequency === '3' && <View style={styles.radioInner} />}
-        </View>
-        <Text style={styles.radioLabel}>Quarterly (3 Months Once)</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-)}
+                  {/* Quarterly */}
+                  <TouchableOpacity
+                    style={styles.radioButton}
+                    onPress={() => handleInputChange('frequency', '3')}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        formData.frequency === '3' && styles.radioOuterSelected
+                      ]}
+                    >
+                      {formData.frequency === '3' && <View style={styles.radioInner} />}
+                    </View>
+                    <Text style={styles.radioLabel}>Quarterly (3 Months Once)</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
           </View>
 

@@ -94,10 +94,6 @@ const PaymentScreen = () => {
       if (!paymentsResponse.ok) throw new Error('Failed to fetch payments');
       const data = await paymentsResponse.json();
 
-      console.log('Date filter enabled:', useDateFilter);
-      console.log('Date range:', dateRange);
-      console.log('Total payments before filter:', data.payments?.length || 0);
-
       const filteredPayments = (data.payments || []).filter(p => {
         const clientMatch = clientIds.includes(p.clientId);
         if (!useDateFilter) return clientMatch;
@@ -113,8 +109,6 @@ const PaymentScreen = () => {
         const dateMatch = createdAt >= fromDate && createdAt <= toDate;
         return clientMatch && dateMatch;
       });
-
-      console.log('Filtered payments count:', filteredPayments.length);
 
       setPayments(filteredPayments);
 

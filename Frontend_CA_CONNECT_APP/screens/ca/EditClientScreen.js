@@ -42,9 +42,9 @@ const EditClientScreen = () => {
   // Fetch client details if not passed in params
   useEffect(() => {
     const fetchClientDetails = async () => {
-     if (!clientId) return;
-// ALWAYS fetch fresh client data
- 
+      if (!clientId) return;
+      // ALWAYS fetch fresh client data
+
 
       try {
         const token = await AsyncStorage.getItem('userToken');
@@ -60,7 +60,6 @@ const EditClientScreen = () => {
         }
 
         const data = await response.json();
-        console.log('Fetched client data:', data);
 
         // Split the name into first and last name
         const nameParts = data.name ? data.name.split(' ') : [];

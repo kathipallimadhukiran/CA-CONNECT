@@ -108,7 +108,6 @@ const ClientDetailsScreen = () => {
         setToken(userToken);
       }
     } catch (error) {
-      console.error('Error fetching token:', error);
     }
   }, []);
   // Fetch client details
@@ -116,7 +115,6 @@ const ClientDetailsScreen = () => {
     if (!clientId) return;
     setLoading(true);
     try {
-      console.log('Fetching client with ID:', clientId);
 
       // First: fetch client with cache-busting
       const timestamp = new Date().getTime();
@@ -136,7 +134,6 @@ const ClientDetailsScreen = () => {
       }
 
       const response = await clientRes.json();
-      console.log('Client API Response:', response);
 
       // Handle case where client is directly in response or nested under 'client' key
       const clientData = response.client || response;
@@ -144,9 +141,6 @@ const ClientDetailsScreen = () => {
       if (!clientData) {
         throw new Error('Client data is empty');
       }
-
-      // Log the raw client data for debugging
-      console.log('Raw client data:', clientData);
 
       // Format client data to match expected structure
       const formattedClient = {
@@ -165,14 +159,10 @@ const ClientDetailsScreen = () => {
         address: clientData.address || 'N/A'
       };
 
-      // Log the formatted client data for debugging
-      console.log('Formatted client data:', formattedClient);
-
       // Try to fetch payment history, but don't fail if it doesn't exist
       let paymentData = { payments: [] };
       try {
         paymentData = await paymentService.getPaymentHistory(clientId, 5) || { payments: [] };
-        console.log('Payment history:', paymentData);
       } catch (paymentError) {
         console.warn('Could not fetch payment history:', paymentError);
         // Continue without payment data

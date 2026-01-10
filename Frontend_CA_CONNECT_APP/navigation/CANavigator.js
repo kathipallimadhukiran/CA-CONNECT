@@ -30,8 +30,6 @@ import ClientDetailsScreen from '../screens/ca/ClientDetailsScreen';
 import EditClientScreen from '../screens/ca/EditClientScreen';
 import PaymentScreen from '../screens/ca/PaymentScreen';
 import PaymentHistoryScreen from '../screens/ca/PaymentHistoryScreen';
-import TaskScreen from '../screens/ca/TaskScreen';
-import AddTaskScreen from '../screens/ca/AddTaskScreen';
 import ProfileScreen from '../screens/ca/ProfileScreen';
 import Returnfilling from '../screens/ca/Returnfilling';
 
@@ -280,49 +278,6 @@ const PaymentStack = () => (
 
 );
 
-// Call Stack Navigator
-const CallStack = () => (
-  <Stack.Navigator
-    screenOptions={{
-      ...commonHeaderOptions,
-      headerShown: true
-    }}
-  >
-    <Stack.Screen
-      name="CallMain"
-      component={CallScreen}
-      options={{
-        headerTitle: 'Calls',
-      }}
-    />
-  </Stack.Navigator>
-);
-
-// Task Stack Navigator
-// const TaskStack = () => (
-//   <Stack.Navigator 
-//     screenOptions={{
-//       ...commonHeaderOptions,
-//       headerShown: true
-//     }}
-//   >
-//     <Stack.Screen 
-//       name="TaskMain" 
-//       component={TaskScreen} 
-//       options={{
-//         headerTitle: 'Tasks',
-//       }}
-//     />
-//     <Stack.Screen 
-//       name="AddTask" 
-//       component={AddTaskScreen} 
-//       options={{
-//         headerTitle: 'Add New Task',
-//       }}
-//     />
-//   </Stack.Navigator>
-// );
-
 // Profile Stack Navigator
 const ProfileStack = () => (
   <Stack.Navigator
@@ -358,9 +313,6 @@ const CANavigator = () => {
               break;
             case 'Payments':
               iconName = focused ? 'card' : 'card-outline';
-              break;
-            case 'Tasks':
-              iconName = focused ? 'clipboard' : 'clipboard-outline';
               break;
             case 'Profile':
               iconName = focused ? 'person' : 'person-outline';
@@ -418,12 +370,6 @@ const CANavigator = () => {
         component={PaymentStack}
         options={{ tabBarLabel: 'Payments' }}
       />
-
-      {/* <Tab.Screen 
-        name="Tasks" 
-        component={TaskStack}
-        options={{ tabBarLabel: 'Tasks' }}
-      /> */}
       <Tab.Screen
         name="Return"
         component={ReturnStack}

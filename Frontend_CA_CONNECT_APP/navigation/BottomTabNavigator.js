@@ -53,7 +53,7 @@ const BottomTabNavigator = () => {
       })}
     >
       <Tab.Screen name="Dashboard" component={HomeScreen} />
-    {/* <Tab.Screen name="Tasks" component={TaskReportingScreen} /> */}
+      {/* <Tab.Screen name="Tasks" component={TaskReportingScreen} /> */}
       <Tab.Screen name="Reports" component={BillingScreen} />
     </Tab.Navigator>
   );

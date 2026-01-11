@@ -25,7 +25,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // Import CA screens
 import HomeScreen from '../screens/ca/HomeScreen';
 import AddClientScreen from '../screens/ca/AddClientScreen';
-import ClientListScreen from '../screens/ca/ClientListScreen.js';
+import ClientListScreen from '../screens/ca/ClientListScreen';
+import ClientStatusListScreen from '../screens/ClientStatusListScreen';
 import ClientDetailsScreen from '../screens/ca/ClientDetailsScreen';
 import EditClientScreen from '../screens/ca/EditClientScreen';
 import PaymentScreen from '../screens/ca/PaymentScreen';
@@ -252,6 +253,86 @@ const ClientStack = () => {
   );
 };
 
+// Client Status Stack Navigator
+const ClientStatusStack = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        ...commonHeaderOptions,
+        headerShown: true,
+        headerTitle: 'Return Status'
+      }}
+    >
+      <Stack.Screen
+        name="ClientStatusList"
+        component={ClientStatusListScreen}
+        options={{
+          headerShown: true,
+          title: 'Return Status',
+          headerLeft: ({ onPress }) => (
+            <TouchableOpacity
+              onPress={onPress}
+              style={{ marginLeft: 10 }}
+            >
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <Stack.Screen
+        name="ClientDetails"
+        component={ClientDetailsScreen}
+        options={({ navigation, route }) => ({
+          headerShown: true,
+          headerTitle: route.params?.clientName || 'Client Details',
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('EditClient', {
+                clientId: route.params?.clientId,
+                clientName: route.params?.clientName
+              })}
+              style={{ marginRight: 16 }}
+            >
+              <Ionicons name="create-outline" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="EditClient"
+        component={EditClientScreen}
+        options={({ navigation }) => ({
+          headerShown: true,
+          headerTitle: 'Edit Client',
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="PaymentHistory"
+        component={PaymentHistoryScreen}
+        options={({ navigation, route }) => ({
+          headerShown: true,
+          headerTitle: `${route.params?.clientName || 'Client'} - Payments`,
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 16 }}>
+              <Ionicons name="arrow-back" size={24} color="#2563EB" />
+            </TouchableOpacity>
+          ),
+        })}
+      />
+    </Stack.Navigator>
+  );
+};
+
 // Payment Stack Navigator
 const PaymentStack = () => (
   <Stack.Navigator
@@ -314,6 +395,9 @@ const CANavigator = () => {
             case 'Payments':
               iconName = focused ? 'card' : 'card-outline';
               break;
+            case 'Status':
+              iconName = focused ? 'list' : 'list-outline';
+              break;
             case 'Profile':
               iconName = focused ? 'person' : 'person-outline';
               break;
@@ -369,6 +453,11 @@ const CANavigator = () => {
         name="Payments"
         component={PaymentStack}
         options={{ tabBarLabel: 'Payments' }}
+      />
+      <Tab.Screen
+        name="Status"
+        component={ClientStatusStack}
+        options={{ tabBarLabel: 'Status', headerShown: false }}
       />
       <Tab.Screen
         name="Return"

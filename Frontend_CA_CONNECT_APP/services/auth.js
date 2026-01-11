@@ -25,24 +25,24 @@ export const authService = {
       console.log('AuthService - Storing credentials for persistent login');
       console.log('AuthService - About to store email:', email);
       console.log('AuthService - About to store password:', password ? '***' : 'null');
-      
+
       // Store user credentials and data for persistent login using secure storage
       try {
         await AsyncStorage.setItem('isLoggedIn', 'true');
         console.log('AuthService - isLoggedIn stored successfully');
-        
+
         await AsyncStorage.setItem('userEmail', email);
         console.log('AuthService - userEmail stored successfully');
-        
+
         await secureStorage.setItem('userPassword', password);
         console.log('AuthService - userPassword stored successfully');
-        
+
         await AsyncStorage.setItem('userData', JSON.stringify(data.user));
         console.log('AuthService - userData stored successfully');
-        
+
         await AsyncStorage.setItem('loginTimestamp', Date.now().toString());
         console.log('AuthService - loginTimestamp stored successfully');
-        
+
         console.log('AuthService - All credentials stored successfully');
       } catch (storageError) {
         console.error('AuthService - Error storing credentials:', storageError);
@@ -60,15 +60,15 @@ export const authService = {
 
   async register(userData) {
     console.log('Sending registration data for CA:', JSON.stringify(userData, null, 2));
-    
+
     const requestBody = {
       name: userData.name.trim(),
       email: userData.email.toLowerCase().trim(),
       phone: userData.phone.replace(/\D/g, ''),
       password: userData.password,
-      qualification: userData.qualification.trim()
+      qualification: userData.qualification ? userData.qualification.trim() : ''
     };
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
@@ -79,17 +79,17 @@ export const authService = {
       });
 
       console.log('Registration response status:', response.status);
-      
+
       const responseText = await response.text();
       let data;
-      
+
       try {
         data = responseText ? JSON.parse(responseText) : {};
       } catch (e) {
         console.error('Failed to parse response as JSON:', responseText);
         throw new Error('Invalid response from server');
       }
-      
+
       console.log('Parsed response data:', data);
 
       if (!response.ok) {
@@ -117,7 +117,7 @@ export const authService = {
         AsyncStorage.removeItem('userData'),
         AsyncStorage.removeItem('loginTimestamp')
       ]);
-      
+
       console.log('AuthService - User logged out successfully');
     } catch (error) {
       console.error('AuthService - Logout error:', error);
@@ -161,7 +161,7 @@ export const authService = {
   async autoLogin() {
     try {
       const { email, password } = await this.getStoredCredentials();
-      
+
       if (!email || !password) {
         console.log('AuthService - Auto-login failed: no stored credentials');
         return false;

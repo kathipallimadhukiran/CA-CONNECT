@@ -14,6 +14,7 @@ import {
   ScrollView,
   Dimensions,
   Alert,
+  Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -107,8 +108,61 @@ const getMonthsForFY = (fy, gstType = 'regular') => {
 
 const STATUS_OPTIONS = [
   { id: 'filed', label: 'File', color: '#10B981', icon: 'checkmark-circle' },
-  { id: 'not_filed', label: 'Not File', color: '#EF4444', icon: 'close-circle' }
+  { id: 'not_filed', label: 'Not File', color: '#EF4444', icon: 'close-circle' },
+  { id: 'not_applicable', label: 'Not Applicable', color: '#6B7280', icon: 'remove-circle' }
 ];
+const ClientActionCard = ({ client }) => {
+  const navigation = useNavigation();
+
+  const handleClientDetails = () => {
+    navigation.navigate('ClientDetails', {
+      clientId: client._id,
+      clientName: client.businessName,
+      client: client
+    });
+  };
+
+  const handleCall = () => {
+    if (client.phoneNumber) {
+      Linking.openURL(`tel:${client.phoneNumber}`);
+    } else {
+      Alert.alert('No Phone Number', 'This client does not have a phone number');
+    }
+  };
+
+  const handleReturnStatus = () => {
+    navigation.navigate('Status', { clientId: client._id });
+  };
+
+  const handleSingleUpdate = () => {
+    // Show modal for single client status update
+    Alert.alert('Single Update', 'Single client status update feature coming soon');
+  };
+
+  return (
+    <View style={styles.actionCard}>
+      <TouchableOpacity style={styles.actionButton} onPress={handleClientDetails}>
+        <Ionicons name="person-outline" size={16} color="#2563EB" />
+        <Text style={styles.actionButtonText}>Details</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.actionButton} onPress={handleCall}>
+        <Ionicons name="call-outline" size={16} color="#10B981" />
+        <Text style={styles.actionButtonText}>Call</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.actionButton} onPress={handleReturnStatus}>
+        <Ionicons name="document-text-outline" size={16} color="#F59E0B" />
+        <Text style={styles.actionButtonText}>Status</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.actionButton} onPress={handleSingleUpdate}>
+        <Ionicons name="create-outline" size={16} color="#8B5CF6" />
+        <Text style={styles.actionButtonText}>Update</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
 const formatGstTypeLabel = (client) => {
   if (client.gstType === 'composition') {
     return 'Composition (Quarterly)';
@@ -124,19 +178,21 @@ const formatGstTypeLabel = (client) => {
 };
 
 const getFinancialYears = (count = 5) => {
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
 
-  // If before April, current FY started last year
-  const startFY = currentMonth < 4 ? currentYear - 1 : currentYear;
+  // If before April, current FY started last year and we're still in that FY
+  // If April or later, current FY started this year
+  const currentFY = currentMonth < 4 ? currentYear - 1 : currentYear;
 
   return Array.from({ length: count }, (_, i) => {
-    const fyStart = startFY - i;
+    const fyStart = currentFY - i;
     return {
       label: `FY ${fyStart}-${String(fyStart + 1).slice(-2)}`,
       value: fyStart,
     };
-  });
+  }).filter(fy => fy.value < currentFY); // Only include past financial years, exclude current
 };
 
 const getFYStatus = (client, fy) => {
@@ -448,7 +504,8 @@ const Returnfilling = () => {
   }, [selectedFY, searchQuery, selectedGstType]);
 
   const handleStatusUpdate = (status) => {
-    const mappedStatus = status === 'filed' ? 'filed' : 'not_filed';
+    const mappedStatus = status === 'filed' ? 'filed' :
+      status === 'not_applicable' ? 'not-applicable' : 'not_filed';
     setTempStatus(mappedStatus);
 
     const client = clients.find(c => c._id === selectedClient);
@@ -511,7 +568,8 @@ const Returnfilling = () => {
     setLoading(true);
 
     try {
-      const backendStatus = tempStatus === 'filed' ? 'filed' : 'not_filed';
+      const backendStatus = tempStatus === 'filed' ? 'filed' :
+        tempStatus === 'not-applicable' ? 'not-applicable' : 'not_filed';
       const displayMonthName = `${selectedMonth.monthName} ${selectedMonth.year}`;
 
       // Update local state first for immediate feedback
@@ -748,18 +806,35 @@ const Returnfilling = () => {
 
     // monthData is already defined at the top with proper defaults
 
+    const getStatusInfo = (status) => {
+      switch (status) {
+        case 'filed':
+          return { color: '#10B981', icon: '✓', bgColor: '#10B98115' };
+        case 'not-applicable':
+          return { color: '#6B7280', icon: '—', bgColor: '#6B728015' };
+        default: // not_filed
+          return { color: '#EF4444', icon: '✗', bgColor: '#EF444415' };
+      }
+    };
+
     // MERGED STATUS FOR COMPOSITION & IFF (single return)
     const mergedStatus =
       monthData.gstr1.status === 'filed' &&
         monthData.gstr3b.status === 'filed'
         ? 'filed'
-        : 'not_filed';
+        : monthData.gstr1.status === 'not-applicable' &&
+          monthData.gstr3b.status === 'not-applicable'
+          ? 'not-applicable'
+          : 'not_filed';
 
     // For composition and IFF (single return), use only one fee to avoid double counting
     const mergedFee = (isComposition || isIff)
       ? (monthData.gstr1.fee || 0) // Use gstr1 fee as the single fee for composition/IFF
       : (monthData.gstr1.fee || 0) + (monthData.gstr3b.fee || 0); // Regular GST: sum both fees
     const isSingleReturn = isComposition || isIff; // Composition and IFF both use single return
+    const mergedStatusInfo = getStatusInfo(mergedStatus);
+    const gstr1StatusInfo = getStatusInfo(monthData.gstr1.status);
+    const gstr3bStatusInfo = getStatusInfo(monthData.gstr3b.status);
 
     return (
       <View style={styles.returnContainer}>
@@ -770,8 +845,8 @@ const Returnfilling = () => {
               styles.returnStatus,
               styles.returnStatusFull,
               {
-                borderColor: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
-                backgroundColor: `${mergedStatus === 'filed' ? '#10B981' : '#EF4444'}15`,
+                borderColor: mergedStatusInfo.color,
+                backgroundColor: mergedStatusInfo.bgColor,
               },
             ]}
             onPress={() =>
@@ -785,18 +860,18 @@ const Returnfilling = () => {
                 styles.returnStatusText,
                 styles.returnStatusTextFull,
                 {
-                  color: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
+                  color: mergedStatusInfo.color,
                 },
               ]}
             >
-              {mergedStatus === 'filed' ? '✓' : '✗'}
+              {mergedStatusInfo.icon}
             </Text>
             {mergedFee > 0 && (
               <Text style={[styles.returnFeeText, {
                 position: 'absolute',
                 bottom: 4,
                 right: 4,
-                color: mergedStatus === 'filed' ? '#10B981' : '#EF4444',
+                color: mergedStatusInfo.color,
               }]}>
                 ₹{mergedFee}
               </Text>
@@ -810,8 +885,8 @@ const Returnfilling = () => {
                 styles.returnStatus,
                 styles.returnStatusHalf,
                 {
-                  borderColor: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444',
-                  backgroundColor: `${monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444'}15`,
+                  borderColor: gstr1StatusInfo.color,
+                  backgroundColor: gstr1StatusInfo.bgColor,
                 },
               ]}
               onPress={() =>
@@ -822,15 +897,15 @@ const Returnfilling = () => {
               <Text
                 style={[
                   styles.returnStatusText,
-                  { color: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444' },
+                  { color: gstr1StatusInfo.color },
                 ]}
               >
-                {monthData.gstr1.status === 'filed' ? '✓' : '✗'}
+                {gstr1StatusInfo.icon}
               </Text>
               {monthData.gstr1.fee > 0 && (
                 <Text style={[
                   styles.returnFeeText,
-                  { color: monthData.gstr1.status === 'filed' ? '#10B981' : '#EF4444' }
+                  { color: gstr1StatusInfo.color }
                 ]}>
                   ₹{monthData.gstr1.fee}
                 </Text>
@@ -842,8 +917,8 @@ const Returnfilling = () => {
                 styles.returnStatus,
                 styles.returnStatusHalfLast,
                 {
-                  borderColor: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444',
-                  backgroundColor: `${monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444'}15`,
+                  borderColor: gstr3bStatusInfo.color,
+                  backgroundColor: gstr3bStatusInfo.bgColor,
                 },
               ]}
               onPress={() =>
@@ -854,15 +929,15 @@ const Returnfilling = () => {
               <Text
                 style={[
                   styles.returnStatusText,
-                  { color: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444' },
+                  { color: gstr3bStatusInfo.color },
                 ]}
               >
-                {monthData.gstr3b.status === 'filed' ? '✓' : '✗'}
+                {gstr3bStatusInfo.icon}
               </Text>
               {monthData.gstr3b.fee > 0 && (
                 <Text style={[
                   styles.returnFeeText,
-                  { color: monthData.gstr3b.status === 'filed' ? '#10B981' : '#EF4444' }
+                  { color: gstr3bStatusInfo.color }
                 ]}>
                   ₹{monthData.gstr3b.fee}
                 </Text>
@@ -1006,6 +1081,7 @@ const Returnfilling = () => {
                     <Text style={styles.gstTypeText}>
                       {formatGstTypeLabel(item)}
                     </Text>
+                    <ClientActionCard client={item} />
                   </View>
                 )}
               />
@@ -1211,7 +1287,7 @@ const Returnfilling = () => {
 };
 
 const MONTH_COLUMN_WIDTH = 100;
-const ROW_HEIGHT = 80;
+const ROW_HEIGHT = 120;
 
 const styles = StyleSheet.create({
 
@@ -1241,19 +1317,19 @@ const styles = StyleSheet.create({
   // Style for IFF/Composition (full height)
   returnStatusFull: {
     height: '100%',
-    paddingVertical: (ROW_HEIGHT - 30) / 2,
+    paddingVertical: (ROW_HEIGHT - 40) / 2,
   },
   // Style for regular GST returns (half height)
   returnStatusHalf: {
     height: '48%',
     marginBottom: '2%',
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   // Last child of regular GST returns (no bottom margin)
   returnStatusHalfLast: {
     height: '48%',
     marginBottom: 0,
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   returnTypeText: {
     fontSize: 12,
@@ -1458,6 +1534,34 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
     backgroundColor: '#FAFBFC',
+  },
+
+  // Action Card Styles
+  actionCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+
+  actionButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderRadius: 4,
+  },
+
+  actionButtonText: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '500',
   },
   clientNameText: {
     fontSize: 14,

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "CA Connect",
-    "slug": "ca-connect",
+    "slug": "Frontend_CA_CONNECT_APP",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",

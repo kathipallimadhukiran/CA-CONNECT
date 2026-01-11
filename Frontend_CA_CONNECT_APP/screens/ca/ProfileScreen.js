@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } fr
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { authService } from '../../services/auth';
-import { useAuth } from '../../App';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
@@ -21,12 +21,12 @@ const ProfileScreen = () => {
   }, []);
 
   const { updateAuthState } = useAuth();
-  
+
   const handleLogout = async () => {
     try {
       // Clear all stored data
       await authService.logout();
-      
+
       // Update the authentication state in App.js
       await updateAuthState();
     } catch (error) {

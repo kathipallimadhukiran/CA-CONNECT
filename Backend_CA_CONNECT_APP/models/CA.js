@@ -20,11 +20,11 @@ const caSchema = new mongoose.Schema({
   experience: {
     type: Number,
     min: 0,
-    required: true
+    default: 0
   },
   qualification: {
     type: String,
-    required: true
+    default: 'CA'
   },
   company: {
     type: String,
@@ -92,9 +92,9 @@ const caSchema = new mongoose.Schema({
 });
 
 // Index for search functionality
-caSchema.index({ 
-  specialization: 1, 
-  experience: 1, 
+caSchema.index({
+  specialization: 1,
+  experience: 1,
   rating: 1,
   'address.city': 1,
   'address.state': 1

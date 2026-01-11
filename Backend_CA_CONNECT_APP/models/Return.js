@@ -161,14 +161,53 @@ ReturnSchema.methods.getFormattedData = function () {
 
       const monthNum = parseInt(month, 10);
       if (monthNum >= 1 && monthNum <= 12) {
+        // Determine the overall status based on GSTR-1 and GSTR-3B
+        let overallStatus = 'pending';
+
+        if (data.gstr1 && data.gstr3b) {
+          // Both GSTR-1 and GSTR-3B are present (Regular GST)
+          const gstr1Status = data.gstr1.status;
+          const gstr3bStatus = data.gstr3b.status;
+
+          // For regular GST: BOTH must be filed or not-applicable to be considered complete
+          if ((gstr1Status === 'filed' || gstr1Status === 'not-applicable') &&
+            (gstr3bStatus === 'filed' || gstr3bStatus === 'not-applicable')) {
+            overallStatus = gstr1Status === 'not-applicable' && gstr3bStatus === 'not-applicable' ? 'not-applicable' : 'filed';
+          } else {
+            overallStatus = 'not_filed';
+          }
+        } else if (data.gstr1 && !data.gstr3b) {
+          // Only GSTR-1 is present (Composition/ISF)
+          const gstr1Status = data.gstr1.status;
+          if (gstr1Status === 'filed' || gstr1Status === 'not-applicable') {
+            overallStatus = gstr1Status;
+          } else {
+            overallStatus = 'not_filed';
+          }
+        } else if (!data.gstr1 && data.gstr3b) {
+          // Only GSTR-3B is present (edge case)
+          const gstr3bStatus = data.gstr3b.status;
+          if (gstr3bStatus === 'filed' || gstr3bStatus === 'not-applicable') {
+            overallStatus = gstr3bStatus;
+          } else {
+            overallStatus = 'not_filed';
+          }
+        } else if (data.status) {
+          // Fallback to legacy status if GSTR-1/GSTR-3B are not present
+          overallStatus = data.status;
+        }
+
         result.months[month] = {
           month: data.month || monthNum,
-          status: data.status || 'pending',
+          status: overallStatus,
           monthName: data.monthName || new Date(2023, monthNum - 1, 1).toLocaleString('default', { month: 'short' }),
           remarks: data.remarks || '',
           documents: Array.isArray(data.documents) ? data.documents : [],
           updatedAt: data.updatedAt || new Date(),
-          updatedBy: data.updatedBy || null
+          updatedBy: data.updatedBy || null,
+          // Include detailed GSTR-1 and GSTR-3B status for frontend
+          gstr1: data.gstr1 || null,
+          gstr3b: data.gstr3b || null
         };
       }
     }

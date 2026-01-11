@@ -18,7 +18,7 @@ import { LineChart, PieChart } from 'react-native-chart-kit';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { authService } from '../../services/auth';
-import { useAuth } from '../../App';
+import { useAuth } from '../../contexts/AuthContext';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useAutoReload } from '../../hooks/useAutoReload';
 
@@ -38,8 +38,7 @@ const HomeScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
-
-
+  const [showEarnings, setShowEarnings] = useState(true);
 
   useEffect(() => {
     ScreenOrientation.lockAsync(
@@ -53,7 +52,6 @@ const HomeScreen = () => {
 
   // Clear data when screen loses focus
   useFocusEffect(
-
     React.useCallback(() => {
       // Clear data when screen is focused
       setClients([]);
@@ -76,7 +74,6 @@ const HomeScreen = () => {
     setUser(userData);
   };
 
-
   // Simple in-memory cache
   const cache = {
     clients: null,
@@ -89,7 +86,6 @@ const HomeScreen = () => {
     // Return cached data if it's still fresh
     const now = Date.now();
     if (!forceRefresh && cache.clients && (now - cache.lastFetched < cache.CACHE_DURATION)) {
-
       setClients(cache.clients);
       updateStats(cache.clients);
       setClientsLoading(false);
@@ -109,7 +105,6 @@ const HomeScreen = () => {
           }
         }
       );
-
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -161,7 +156,6 @@ const HomeScreen = () => {
     }
   };
 
-
   // Update stats without reloading all clients
   const updateStats = (clientList) => {
     if (!clientList || clientList.length === 0) return;
@@ -189,7 +183,7 @@ const HomeScreen = () => {
       (sum, c) => sum + (c.totalPaid || 0), 0
     );
 
-    // 🔥 Overdue Based on ALL CLIENTS
+    // Overdue Based on ALL CLIENTS
     const overdueClients = clientList.filter(
       c => (c.totalOutstanding || 0) > 0
     ).length;
@@ -204,7 +198,6 @@ const HomeScreen = () => {
       overduePayments: overdueClients
     });
   };
-
 
   // Force refresh when pulling down
   const onRefresh = async () => {
@@ -249,106 +242,6 @@ const HomeScreen = () => {
     );
   };
 
-  // Graph data: monthly earnings from actual payments
-  const buildMonthlyChart = () => {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const currentYear = new Date().getFullYear();
-
-    if (!clients || clients.length === 0) {
-      return {
-        labels: monthNames,
-        datasets: [{ data: new Array(12).fill(0) }]
-      };
-    }
-
-    const monthlyTotals = new Array(12).fill(0);
-
-    // Calculate earnings from all clients' payment history for current year
-    clients.forEach((client, index) => {
-
-      if (client.payments && client.payments.length > 0) {
-        client.payments.forEach((payment, paymentIndex) => {
-          const paymentDate = new Date(payment.createdAt || payment.date);
-
-          // Only include payments from current year
-          if (paymentDate.getFullYear() === currentYear) {
-            const month = paymentDate.getMonth();
-            const amount = Number(payment.amount) || 0;
-
-            // Only count completed payments (not outstanding)
-            if (payment.status === 'completed' || payment.type === 'manual') {
-              monthlyTotals[month] += amount;
-            }
-          }
-        });
-      }
-
-      // Also check totalPaid as fallback
-      const totalPaid = Number(client.totalPaid) || 0;
-      if (totalPaid > 0 && (!client.payments || client.payments.length === 0)) {
-        // Distribute totalPaid across months where client was created
-        const createdDate = new Date(client.createdAt || Date.now());
-        if (createdDate.getFullYear() === currentYear) {
-          const createdMonth = createdDate.getMonth();
-          monthlyTotals[createdMonth] += totalPaid;
-        }
-      }
-    });
-
-    // Don't distribute outstanding amounts - only show actual payments
-    // This will show real monthly earnings, not projections
-
-    // Prevent Infinity issue — chart kit bug when all values are 0
-    const hasAnyValue = monthlyTotals.some(v => v > 0);
-    const safeData = hasAnyValue ? monthlyTotals : new Array(12).fill(0);
-
-    return {
-      labels: monthNames,
-      datasets: [
-        {
-          data: safeData,
-          color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
-          strokeWidth: 2
-        }
-      ]
-    };
-  };
-
-
-  const buildPaidDuePie = () => {
-    let totalPaid = 0;
-    let totalDue = 0;
-
-    clients.forEach(client => {
-      totalPaid += Number(client.totalPaid || 0);
-      totalDue += Number(client.totalOutstanding || 0);
-    });
-
-    // Prevent empty chart crash
-    if (totalPaid === 0 && totalDue === 0) {
-      totalDue = 1;
-    }
-
-    return [
-      {
-        name: 'Paid',
-        amount: totalPaid,
-        color: '#10B981', // green
-        legendFontColor: '#374151',
-        legendFontSize: 12,
-      },
-      {
-        name: 'Due',
-        amount: totalDue,
-        color: '#EF4444', // red
-        legendFontColor: '#374151',
-        legendFontSize: 12,
-      },
-    ];
-  };
-
-  const chartData = buildMonthlyChart();
-
   // Quick Actions with semantic colors/icons
   const quickActions = [
     {
@@ -365,7 +258,6 @@ const HomeScreen = () => {
       onPress: () => navigation.navigate('AddClient'),
       color: '#10B981'
     },
-
   ];
 
   return (
@@ -390,8 +282,8 @@ const HomeScreen = () => {
             <Ionicons name="log-out-outline" size={24} color="#EF4444" />
           </TouchableOpacity>
         </View>
-        {/* Horizontal Client List */}
 
+        {/* Horizontal Client List */}
         <View style={styles.clientListSection}>
           <Text style={styles.sectionTitle}>Clients</Text>
 
@@ -467,64 +359,24 @@ const HomeScreen = () => {
           )}
         </View>
 
-
-
-        {/* Earnings Chart */}
-        <View style={styles.chartContainer}>
-          <Text style={styles.sectionTitle}>Earnings per Month</Text>
-          <Text style={styles.earningsAmount}>
-            ₹{stats.totalEarnings?.toLocaleString() || 0}
-          </Text>
-
-          <LineChart
-            data={chartData}
-            width={screenWidth - 80}
-            height={160}
-            chartConfig={{
-              backgroundColor: '#ffffff',
-              backgroundGradientFrom: '#ffffff',
-              backgroundGradientTo: '#ffffff',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
-              labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
-              style: { borderRadius: 16 },
-              propsForDots: {
-                r: '4',
-                strokeWidth: '2',
-                stroke: '#2563EB'
-              },
-              propsForLabels: {
-                fontSize: 10
-              }
-            }}
-            bezier
-            style={styles.chart}
-            withInnerLines={false}
-            withOuterLines={true}
-            withVerticalLines={false}
-            withHorizontalLines={true}
-          />
+        {/* Total Earnings with Eye Icon */}
+        <View style={styles.earningsContainer}>
+          <View style={styles.earningsHeader}>
+            <Text style={styles.sectionTitle}>Total Earnings</Text>
+            <TouchableOpacity onPress={() => setShowEarnings(!showEarnings)}>
+              <Ionicons name={showEarnings ? "eye-off" : "eye"} size={20} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          {showEarnings && (
+            <Text style={styles.earningsAmount}>
+              ₹{stats.totalEarnings?.toLocaleString() || 0}
+            </Text>
+          )}
         </View>
 
         {/* Paid vs Due Pie Chart */}
         <View style={styles.chartContainer}>
           <Text style={styles.sectionTitle}>Paid vs Due</Text>
-
-        <PieChart
-  data={buildPaidDuePie()}
-  width={screenWidth - 80}
-  height={200}
-  chartConfig={{
-    color: () => '#000',
-  }}
-  accessor="amount"
-  backgroundColor="transparent"
-  paddingLeft="0"
-  center={[screenWidth / 4 - 20, 0]}   // ✅ TRUE CENTER FIX
-  absolute
-  hasLegend={false}
-/>
-
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
             <Text style={{ color: '#10B981', fontWeight: '600' }}>
@@ -535,7 +387,6 @@ const HomeScreen = () => {
             </Text>
           </View>
         </View>
-
 
         {/* Statistics */}
         <View style={styles.statsContainer}>
@@ -601,7 +452,7 @@ const styles = StyleSheet.create({
   logoutButton: {
     padding: 6
   },
-  chartContainer: {
+  earningsContainer: {
     marginHorizontal: 20,
     marginVertical: 10,
     padding: 15,
@@ -613,18 +464,50 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3
   },
+  earningsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 8
-  }, emptyClientsContainer: {
+  },
+  emptyClientsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 24,
     backgroundColor: '#F3F4F6',
     borderRadius: 12,
     marginTop: 8,
+  },
+  emptyClientsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  emptyClientsSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  emptyAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  emptyAddButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+
   },
   emptyClientsTitle: {
     fontSize: 16,

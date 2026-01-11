@@ -23,8 +23,7 @@ const RegisterScreen = () => {
     email: '',
     phoneNumber: '',
     password: '',
-    confirmPassword: '',
-    qualification: ''
+    confirmPassword: ''
   });
 
   useFocusEffect(
@@ -66,10 +65,6 @@ const RegisterScreen = () => {
       Alert.alert('Error', 'Please enter a valid 10-digit phone number');
       return false;
     }
-    if (!formData.qualification.trim()) {
-      Alert.alert('Error', 'Please enter your professional qualification');
-      return false;
-    }
     if (!formData.password) {
       Alert.alert('Error', 'Please enter password');
       return false;
@@ -94,8 +89,7 @@ const RegisterScreen = () => {
         email: formData.email.trim(),
         name: formData.name.trim(),
         phone: formData.phoneNumber.replace(/\s/g, ''),
-        password: formData.password,
-        qualification: formData.qualification.trim()
+        password: formData.password
       };
 
       console.log('Attempting to register CA with data:', userData);
@@ -185,18 +179,6 @@ const RegisterScreen = () => {
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Professional Qualification <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={formData.qualification}
-              onChangeText={(value) => handleInputChange('qualification', value)}
-              placeholder="e.g., CA, CPA, ACCA"
-            />
-          </View>
-
           {/* Password */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
@@ -224,6 +206,7 @@ const RegisterScreen = () => {
               secureTextEntry
             />
           </View>
+
 
           <TouchableOpacity
             style={[styles.submitButton, loading && styles.submitButtonDisabled]}
@@ -329,7 +312,7 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     fontSize: 14,
     fontWeight: '600'
-  }
+  },
 });
 
 export default RegisterScreen;

@@ -1,0 +1,12 @@
+1) payment screen  date filter error 
+2) add filter to  table  in the return fileing 
+3) change the table formate 
+4) statement downloading  for the  client 
+5) change the description of the adding file fee description as the  months not th date 
+6) homescreen  earnings include the eye symbol to visible the earnings
+7) months need to  adjust in the qutraly and  monthly 
+8) return status re update that  reverse the amount in the payment screen 
+9) update the filter to gst types 
+10) For iff  three options  file , not file , not applicable
+
+

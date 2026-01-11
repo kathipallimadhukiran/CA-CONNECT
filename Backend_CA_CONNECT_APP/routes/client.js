@@ -135,6 +135,12 @@ router.get('/', async (req, res) => {
     const finalClients = await Promise.all(
       clients.map(async (c) => {
         const summary = await getPaymentSummary(c._id);
+
+        // Get filings for this client
+        const Filing = require('../models/Filing');
+        const filings = await Filing.find({ clientId: c._id })
+          .sort({ month: -1, type: 1 });
+
         return {
           _id: c._id,
           name: `${c.firstName} ${c.lastName}`,
@@ -148,7 +154,8 @@ router.get('/', async (req, res) => {
           isActive: c.isActive,
           totalAdded: summary.totalAdded,
           totalPaid: summary.totalPaid,
-          totalOutstanding: summary.totalOutstanding
+          totalOutstanding: summary.totalOutstanding,
+          filings: filings
         };
       })
     );
@@ -329,6 +336,11 @@ router.get('/:id', async (req, res) => {
     const lastPayment = await Payment.findOne({ clientId: client._id, status: 'completed' })
       .sort({ paidAt: -1 });
 
+    // Get filings for this client
+    const Filing = require('../models/Filing');
+    const filings = await Filing.find({ clientId: client._id })
+      .sort({ month: -1, type: 1 });
+
     // Aggregate files from tasks
     const fileAggregation = await Task.aggregate([
       { $match: { clientId: client._id } },
@@ -352,7 +364,8 @@ router.get('/:id', async (req, res) => {
       totalPaid: summary.totalPaid,
       totalOutstanding: summary.totalOutstanding,
       lastPaymentDate: lastPayment?.paidAt || null,
-      fileCount
+      fileCount,
+      filings: filings
     };
 
     res.json(clientDetails);

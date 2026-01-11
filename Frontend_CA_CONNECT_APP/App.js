@@ -1,10 +1,13 @@
 import 'react-native-gesture-handler';
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { authService } from './services/auth';
+import { API_BASE_URL } from './config';
+import { AuthContext, AuthProvider } from './contexts/AuthContext';
 
 // Import screens
 import LoginScreen from './screens/LoginScreen';
@@ -14,17 +17,6 @@ import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import CANavigator from './navigation/CANavigator';
 
 const Stack = createStackNavigator();
-
-// Create Auth Context
-const AuthContext = createContext();
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -37,15 +29,34 @@ export default function App() {
 
   const checkAuthenticationState = async () => {
     try {
-      // Check if user is already logged in
+      // Check if user is already logged in locally
       const isLoggedIn = await AsyncStorage.getItem('isLoggedIn');
       const userData = await AsyncStorage.getItem('userData');
 
       if (isLoggedIn === 'true' && userData) {
         const user = JSON.parse(userData);
-        setIsAuthenticated(true);
-        setUserType(user.userType || 'ca'); // Default to 'ca' if not specified
-        console.log('User is already logged in:', user.email);
+        console.log('Found stored login for:', user.email);
+
+        // Validate user exists in database
+        const userExists = await validateUserInDatabase(user.email);
+
+        if (userExists) {
+          setIsAuthenticated(true);
+          setUserType(user.userType || 'ca'); // Default to 'ca' if not specified
+          console.log('User validated in database:', user.email);
+        } else {
+          // User no longer exists in database, clear local storage
+          console.log('User not found in database, clearing local storage');
+          await authService.logout();
+          setIsAuthenticated(false);
+          setUserType(null);
+
+          Alert.alert(
+            'Account Not Found',
+            'Your account is no longer available. Please register again.',
+            [{ text: 'OK' }]
+          );
+        }
       } else {
         setIsAuthenticated(false);
         setUserType(null);
@@ -57,6 +68,32 @@ export default function App() {
       setUserType(null);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const validateUserInDatabase = async (email) => {
+    try {
+      console.log('Validating user in database:', email);
+      const response = await fetch(`${API_BASE_URL}/auth/validate-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('User validation response:', data);
+        return data.exists;
+      } else {
+        console.log('User validation failed, user likely does not exist');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error validating user in database:', error);
+      // If network error, assume user exists to allow offline access
+      return true;
     }
   };
 
@@ -75,7 +112,7 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ updateAuthState }}>
+    <AuthProvider value={{ updateAuthState }}>
       <NavigationContainer>
         <StatusBar style="auto" />
         <Stack.Navigator
@@ -100,7 +137,7 @@ export default function App() {
           )}
         </Stack.Navigator>
       </NavigationContainer>
-    </AuthContext.Provider>
+    </AuthProvider>
   );
 }
 

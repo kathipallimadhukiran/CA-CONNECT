@@ -259,25 +259,26 @@ const ClientDetailsScreen = () => {
     try {
       setLoading(true);
 
-      // Authenticate only when submitting payment
+      // Check for biometric authentication (skip if not available)
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-      if (!hasHardware || !isEnrolled) {
-        Alert.alert(
-          'Authentication Error',
-          'No biometric authentication is set up on this device.'
-        );
-        return;
+      let shouldProceed = false;
+
+      if (hasHardware && isEnrolled) {
+        // Biometric authentication is available, use it
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to record payment',
+          fallbackLabel: 'Enter device PIN',
+        });
+        shouldProceed = result.success;
+      } else {
+        // No biometric module available or not enrolled, proceed without authentication
+        shouldProceed = true;
       }
 
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authenticate to record payment',
-        fallbackLabel: 'Enter device PIN',
-      });
-
-      if (result.success) {
-        // Process payment after successful authentication
+      if (shouldProceed) {
+        // Process payment
         await paymentService.recordManualPayment({
           clientId,
           amount: parseFloat(manualAmount),

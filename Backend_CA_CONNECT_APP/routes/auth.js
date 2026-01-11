@@ -26,10 +26,6 @@ router.post('/register', [
     .withMessage('Phone number is required')
     .isLength({ min: 10, max: 15 })
     .withMessage('Phone number must be between 10 and 15 digits'),
-  body('qualification')
-    .trim()
-    .notEmpty()
-    .withMessage('Qualification is required'),
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long')
@@ -47,66 +43,63 @@ router.post('/register', [
       });
     }
 
-    const { email, name, phone, qualification, password } = req.body;
+    const { email, name, phone, password } = req.body;
+
+    // Validate required fields
+    if (!email || !name || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: email, name, phone, password'
+      });
+    }
 
     // Check if user already exists by email or phone
     const existingUser = await User.findOne({
       $or: [
-        { email: email.toLowerCase().trim() },
-        { phone: phone.trim() }
+        { email: (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '' },
+        { phone: (phone && typeof phone.trim === 'function') ? phone.trim() : '' }
       ]
     });
 
     if (existingUser) {
+      const normalizedEmail = (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '';
+      const isEmailMatch = existingUser.email === normalizedEmail;
+
       return res.status(400).json({
         success: false,
-        message: existingUser.email === email.toLowerCase()
+        message: isEmailMatch
           ? 'Email already registered'
           : 'Phone number already registered'
       });
     }
 
     // Split name into first and last name
-    const nameParts = name.trim().split(' ').filter(part => part.trim() !== '');
+    const nameParts = (name && typeof name.trim === 'function') ? name.trim().split(' ').filter(part => part.trim() !== '') : [];
     const firstName = nameParts[0] || 'User';
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'User';
 
-    // Create user
+    // Create user (default to CA type)
     const user = new User({
-      email: email.toLowerCase().trim(),
+      email: (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '',
       password: password,
       firstName,
       lastName,
-      phone: phone.trim(),
+      phone: (phone && typeof phone.trim === 'function') ? phone.trim() : '',
       userType: 'ca'
     });
 
     await user.save();
-    let caProfileData;
+    let profileData;
 
-    // Create CA profile
+    // Create CA profile with default values
     try {
       const caToSave = new CA({
         userId: user._id,
         caNumber: `CA${Date.now()}`,
-        specialization: [],
-        experience: 0, // Default experience
-        qualification: qualification.trim(),
-        company: '',
-        address: {},
-        services: [],
-        availability: {
-          monday: { start: '09:00', end: '17:00', available: true },
-          tuesday: { start: '09:00', end: '17:00', available: true },
-          wednesday: { start: '09:00', end: '17:00', available: true },
-          thursday: { start: '09:00', end: '17:00', available: true },
-          friday: { start: '09:00', end: '17:00', available: true },
-          saturday: { start: '09:00', end: '13:00', available: false },
-          sunday: { start: '09:00', end: '17:00', available: false }
-        },
-        isVerified: false
+        qualification: 'CA', // Default qualification
+        experience: 0 // Default experience
       });
-      caProfileData = await caToSave.save();
+      profileData = await caToSave.save();
     } catch (error) {
       // If CA profile creation fails, delete the created user
       await User.findByIdAndDelete(user._id);
@@ -115,7 +108,7 @@ router.post('/register', [
 
     // Prepare response without token
     const userProfile = user.getProfile();
-    userProfile.caProfile = caProfileData;
+    userProfile.caProfile = profileData;
 
     return res.status(201).json({
       success: true,
@@ -127,7 +120,7 @@ router.post('/register', [
         userType: user.userType,
         phone: user.phone
       },
-      caProfile: caProfileData
+      caProfile: profileData
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -340,7 +333,7 @@ router.post('/debug', async (req, res) => {
     }
 
     // Check if user exists
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '' });
     console.log('Debug endpoint - User found:', !!user);
 
     if (!user) {
@@ -371,10 +364,10 @@ router.post('/debug', async (req, res) => {
   }
 });
 
-// @route   POST /api/auth/forgot-password
-// @desc    Forgot password - Send verification code to email
+// @route   POST /api/auth/validate-user
+// @desc    Validate if user exists in database
 // @access  Public
-router.post('/forgot-password', [
+router.post('/validate-user', [
   body('email')
     .isEmail()
     .withMessage('Please include a valid email')
@@ -392,130 +385,43 @@ router.post('/forgot-password', [
 
     const { email } = req.body;
 
-    // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Check if user exists in CA collection
+    const caUser = await CA.findOne({ email: (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '' });
 
-    // Don't reveal if user doesn't exist (for security)
-    if (!user) {
+    if (caUser) {
       return res.status(200).json({
         success: true,
-        message: 'If an account with that email exists, a verification code has been sent.'
+        exists: true,
+        userType: 'ca',
+        message: 'User exists'
       });
     }
 
-    // Generate and save verification code
-    const verificationCode = user.generateVerificationCode();
-    await user.save({ validateBeforeSave: false });
+    // Check if user exists in User collection (for clients/staff)
+    const regularUser = await User.findOne({ email: (email && typeof email.toLowerCase === 'function') ? email.toLowerCase().trim() : '' });
 
-    try {
-      // Send email with verification code
-      await sendEmail({
-        email: user.email,
-        subject: 'Password Reset Verification Code',
-        ...resetPasswordEmail(`${user.firstName} ${user.lastName}`, verificationCode)
-      });
-
-      res.status(200).json({
+    if (regularUser) {
+      return res.status(200).json({
         success: true,
-        message: 'If an account with that email exists, a verification code has been sent.'
-      });
-    } catch (error) {
-      console.error('Email sending error:', error);
-      user.resetVerificationCode = undefined;
-      user.resetVerificationExpires = undefined;
-      await user.save({ validateBeforeSave: false });
-
-      return res.status(500).json({
-        success: false,
-        message: 'Email could not be sent'
-      });
-    }
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during password reset request'
-    });
-  }
-});
-
-// @route   POST /api/auth/verify-reset-code
-// @desc    Verify reset code and update password
-// @access  Public
-router.post('/verify-reset-code', [
-  body('email')
-    .isEmail()
-    .withMessage('Please include a valid email')
-    .normalizeEmail(),
-  body('code')
-    .notEmpty()
-    .withMessage('Verification code is required'),
-  body('newPassword')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        exists: true,
+        userType: regularUser.userType || 'client',
+        message: 'User exists'
       });
     }
 
-    const { email, code, newPassword } = req.body;
-
-    // Find user by email with valid verification code
-    const user = await User.findOne({
-      email: email.toLowerCase().trim(),
-      resetVerificationExpires: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired verification code'
-      });
-    }
-
-    // Verify the code
-    if (!user.verifyResetCode(code)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid verification code'
-      });
-    }
-
-    // Update password and clear verification code
-    user.password = newPassword;
-    user.resetVerificationCode = undefined;
-    user.resetVerificationExpires = undefined;
-
-    await user.save();
-
-    // Send confirmation email
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Password Reset Successful',
-        ...passwordResetConfirmationEmail(`${user.firstName} ${user.lastName}`)
-      });
-    } catch (emailError) {
-      console.error('Confirmation email error:', emailError);
-      // Don't fail the request if the confirmation email fails
-    }
-
-    res.status(200).json({
+    // User not found in any collection
+    return res.status(200).json({
       success: true,
-      message: 'Password has been reset successfully'
+      exists: false,
+      userType: null,
+      message: 'User not found'
     });
 
   } catch (error) {
-    console.error('Reset password error:', error);
+    console.error('User validation error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during password reset'
+      message: 'Server error during user validation'
     });
   }
 });

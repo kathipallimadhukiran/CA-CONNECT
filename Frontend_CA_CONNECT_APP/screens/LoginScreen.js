@@ -16,7 +16,7 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/auth';
-import { useAuth } from '../App';
+import { useAuth } from '../contexts/AuthContext';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 const LoginScreen = () => {
